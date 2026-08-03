@@ -1,0 +1,489 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Organization {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  plan      String   @default("free")
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  teams            Team[]
+  users            User[]
+  funnelStages     FunnelStage[]
+  leads            Lead[]
+  properties       Property[]
+  interactions     Interaction[]
+  tasks            Task[]
+  goals            Goal[]
+  sales            Sale[]
+  documents        Document[]
+  leadTags         LeadTag[]
+  messageTemplates MessageTemplate[]
+  dailyActivities  DailyActivity[]
+
+  @@map("organizations")
+}
+
+model Team {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  name           String
+  coordinatorId  String?  @map("coordinator_id")
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  coordinator  User?        @relation("TeamCoordinator", fields: [coordinatorId], references: [id], onDelete: SetNull)
+  members      User[]       @relation("TeamMembers")
+  leads        Lead[]
+  goals        Goal[]
+  sales        Sale[]
+
+  @@map("teams")
+}
+
+model User {
+  id             String    @id @default(uuid())
+  organizationId String    @map("organization_id")
+  teamId         String?   @map("team_id")
+  name           String
+  email          String    @unique
+  passwordHash   String    @map("password_hash")
+  phone          String?
+  creci          String?
+  avatarUrl      String?   @map("avatar_url")
+  role           String    @default("corretor")
+  active         Boolean   @default(true)
+  lastLogin      DateTime? @map("last_login")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  team             Team?             @relation("TeamMembers", fields: [teamId], references: [id], onDelete: SetNull)
+  coordinatedTeams Team[]            @relation("TeamCoordinator")
+  leads            Lead[]
+  properties       Property[]
+  interactions     Interaction[]
+  tasks            Task[]            @relation("TaskAssignee")
+  createdTasks     Task[]            @relation("TaskCreator")
+  goals            Goal[]
+  sales            Sale[]
+  documents        Document[]
+  messageTemplates MessageTemplate[]
+  dailyActivities  DailyActivity[]
+
+  @@map("users")
+  @@index([organizationId])
+  @@index([teamId])
+}
+
+model FunnelStage {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  name           String
+  color          String   @default("#6366f1")
+  orderIndex     Int      @map("order_index")
+  isDefault      Boolean  @default(false) @map("is_default")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  leads        Lead[]
+
+  @@map("funnel_stages")
+  @@index([organizationId])
+}
+
+model Lead {
+  id                  String    @id @default(uuid())
+  organizationId      String    @map("organization_id")
+  ownerId             String?   @map("owner_id")
+  teamId              String?   @map("team_id")
+  funnelStageId       String?   @map("funnel_stage_id")
+  profile             String    @default("interessado")
+  status              String    @default("novo")
+  urgency             String    @default("sem_pressa")
+  name                String
+  email               String?
+  phone               String
+  phone2              String?   @map("phone2")
+  birthDate           DateTime? @map("birth_date") @db.Date
+  spouseName          String?   @map("spouse_name")
+  spousePhone         String?   @map("spouse_phone")
+  spouseIncome        Decimal?  @map("spouse_income") @db.Decimal(15, 2)
+  spouseCpf           String?   @map("spouse_cpf")
+  source              String?
+  intent              String    @default("compra")
+  propertyType        String?   @map("property_type")
+  interestValue       Decimal?  @map("interest_value") @db.Decimal(15, 2)
+  income              Decimal?  @db.Decimal(15, 2)
+  hasClt3Years        Boolean   @default(false) @map("has_clt_3years")
+  fgtsValue           Decimal?  @map("fgts_value") @db.Decimal(15, 2)
+  ownResources        Decimal?  @map("own_resources") @db.Decimal(15, 2)
+  addressCep          String?   @map("address_cep")
+  addressStreet       String?   @map("address_street")
+  addressNumber       String?   @map("address_number")
+  addressComplement   String?   @map("address_complement")
+  addressNeighborhood String?   @map("address_neighborhood")
+  addressCity         String?   @map("address_city")
+  addressState        String?   @map("address_state")
+  cpf                 String?
+  rg                  String?
+  pis                 String?
+  fatherName          String?   @map("father_name")
+  motherName          String?   @map("mother_name")
+  birthplace          String?
+  nationality         String?   @default("Brasileiro(a)")
+  maritalStatus       String?   @map("marital_status")
+  occupation          String?
+  aiScore             Int?      @map("ai_score")
+  aiSummary           String?   @map("ai_summary")
+  aiNextSteps         String?   @map("ai_next_steps")
+  aiUpdatedAt         DateTime? @map("ai_updated_at")
+  lostReason          String?   @map("lost_reason")
+  notes               String?
+  active              Boolean   @default(true)
+  lastContactAt       DateTime? @map("last_contact_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  owner        User?             @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  team         Team?             @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  funnelStage  FunnelStage?      @relation(fields: [funnelStageId], references: [id], onDelete: SetNull)
+  interactions Interaction[]
+  tasks        Task[]
+  properties   LeadProperty[]
+  documents    Document[]
+  sales        Sale[]
+  tags         LeadTagRelation[]
+
+  @@map("leads")
+  @@index([organizationId])
+  @@index([ownerId])
+  @@index([status])
+  @@index([funnelStageId])
+}
+
+model LeadTag {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  name           String
+  color          String   @default("#6B7280")
+  isSystem       Boolean  @default(false) @map("is_system")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  leads        LeadTagRelation[]
+
+  @@unique([organizationId, name])
+  @@map("lead_tags")
+}
+
+model LeadTagRelation {
+  leadId    String   @map("lead_id")
+  tagId     String   @map("tag_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  lead Lead    @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  tag  LeadTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([leadId, tagId])
+  @@map("lead_tag_relations")
+}
+
+model Property {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  ownerId        String?  @map("owner_id")
+  kind           String
+  title          String
+  description    String?
+  cep            String?
+  address        String?
+  neighborhood   String?
+  city           String
+  state          String?
+  totalUnits     Int?     @map("total_units")
+  startingPrice  Decimal? @map("starting_price") @db.Decimal(15, 2)
+  maxPrice       Decimal? @map("max_price") @db.Decimal(15, 2)
+  price          Decimal? @db.Decimal(15, 2)
+  areaM2         Decimal? @map("area_m2") @db.Decimal(10, 2)
+  bedrooms       Int?
+  bathrooms      Int?
+  parkingSpots   Int?     @map("parking_spots")
+  minIncome      Decimal? @map("min_income") @db.Decimal(15, 2)
+  maxIncome      Decimal? @map("max_income") @db.Decimal(15, 2)
+  propertyStatus String?  @map("property_status") @default("lancamento")
+  sold           Boolean  @default(false)
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  owner        User?          @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  leads        LeadProperty[]
+  sales        Sale[]
+
+  @@map("properties")
+  @@index([organizationId])
+  @@index([kind])
+}
+
+model LeadProperty {
+  leadId     String   @map("lead_id")
+  propertyId String   @map("property_id")
+  notes      String?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  lead     Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@id([leadId, propertyId])
+  @@map("lead_properties")
+}
+
+model Interaction {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  leadId         String   @map("lead_id")
+  userId         String?  @map("user_id")
+  type           String
+  notes          String
+  occurredAt     DateTime @default(now()) @map("occurred_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lead         Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  user         User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@map("interactions")
+  @@index([leadId])
+  @@index([organizationId])
+}
+
+model Task {
+  id              String    @id @default(uuid())
+  organizationId  String    @map("organization_id")
+  leadId          String?   @map("lead_id")
+  assignedTo      String    @map("assigned_to")
+  createdBy       String    @map("created_by")
+  parentTaskId    String?   @map("parent_task_id")
+  title           String
+  description     String?
+  type            String    @default("ligacao")
+  priority        String    @default("media")
+  status          String    @default("pendente")
+  dueDate         DateTime  @map("due_date")
+  completedAt     DateTime? @map("completed_at")
+  hasNextTask     Boolean   @default(false) @map("has_next_task")
+  completionNotes String?   @map("completion_notes")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lead         Lead?        @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  assignee     User         @relation("TaskAssignee", fields: [assignedTo], references: [id])
+  creator      User         @relation("TaskCreator", fields: [createdBy], references: [id])
+  parentTask   Task?        @relation("TaskChain", fields: [parentTaskId], references: [id])
+  childTasks   Task[]       @relation("TaskChain")
+
+  @@map("tasks")
+  @@index([leadId])
+  @@index([assignedTo])
+  @@index([dueDate])
+  @@index([organizationId])
+}
+
+model Goal {
+  id                 String   @id @default(uuid())
+  organizationId     String   @map("organization_id")
+  teamId             String?  @map("team_id")
+  userId             String?  @map("user_id")
+  title              String
+  type               String
+  period             String
+  periodStart        DateTime @map("period_start") @db.Date
+  periodEnd          DateTime @map("period_end") @db.Date
+  targetVgv          Decimal? @map("target_vgv") @db.Decimal(15, 2)
+  avgTicket          Decimal? @map("avg_ticket") @db.Decimal(15, 2)
+  commissionPct      Decimal? @map("commission_pct") @db.Decimal(5, 2)
+  goalUnits          Int?     @map("goal_units")
+  goalCalls          Int?     @map("goal_calls")
+  goalProspects      Int?     @map("goal_prospects")
+  goalQualifications Int?     @map("goal_qualifications")
+  goalSimulations    Int?     @map("goal_simulations")
+  goalAppointments   Int?     @map("goal_appointments")
+  goalClosings       Int?     @map("goal_closings")
+  currentVgv         Decimal  @default(0) @map("current_vgv") @db.Decimal(15, 2)
+  currentUnits       Int      @default(0) @map("current_units")
+  active             Boolean  @default(true)
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  team         Team?            @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user         User?            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dailyEntries GoalDailyEntry[]
+
+  @@map("goals")
+  @@index([organizationId])
+}
+
+model GoalDailyEntry {
+  id             String   @id @default(uuid())
+  goalId         String   @map("goal_id")
+  userId         String   @map("user_id")
+  organizationId String   @map("organization_id")
+  date           DateTime @db.Date
+  calls          Int      @default(0)
+  prospects      Int      @default(0)
+  qualifications Int      @default(0)
+  simulations    Int      @default(0)
+  appointments   Int      @default(0)
+  closings       Int      @default(0)
+  notes          String?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  goal Goal @relation(fields: [goalId], references: [id], onDelete: Cascade)
+
+  @@unique([goalId, userId, date])
+  @@map("goal_daily_entries")
+}
+
+model DailyActivity {
+  id                String   @id @default(uuid())
+  organizationId    String   @map("organization_id")
+  userId            String   @map("user_id")
+  date              DateTime @db.Date
+  calls             Int      @default(0)
+  whatsappMessages  Int      @default(0) @map("whatsapp_messages")
+  facebookGroups    Int      @default(0) @map("facebook_groups")
+  builderVisits     Int      @default(0) @map("builder_visits")
+  posts             Int      @default(0)
+  stories           Int      @default(0)
+  adsInvestment     Decimal  @default(0) @map("ads_investment") @db.Decimal(10, 2)
+  referralsAsked    Int      @default(0) @map("referrals_asked")
+  referralsReceived Int      @default(0) @map("referrals_received")
+  standHours        Decimal  @default(0) @map("stand_hours") @db.Decimal(4, 2)
+  networkingEvents  Int      @default(0) @map("networking_events")
+  leadsGenerated    Int      @default(0) @map("leads_generated")
+  attendances       Int      @default(0)
+  visitsScheduled   Int      @default(0) @map("visits_scheduled")
+  visitsDone        Int      @default(0) @map("visits_done")
+  proposalsSent     Int      @default(0) @map("proposals_sent")
+  salesClosed       Int      @default(0) @map("sales_closed")
+  notes             String?
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId, date])
+  @@map("daily_activities")
+}
+
+model Sale {
+  id                String    @id @default(uuid())
+  organizationId    String    @map("organization_id")
+  leadId            String?   @map("lead_id")
+  propertyId        String?   @map("property_id")
+  brokerId          String?   @map("broker_id")
+  teamId            String?   @map("team_id")
+  saleValue         Decimal   @map("sale_value") @db.Decimal(15, 2)
+  unitIdentifier    String?   @map("unit_identifier")
+  commissionPct     Decimal?  @map("commission_pct") @db.Decimal(5, 2)
+  commissionValue   Decimal?  @map("commission_value") @db.Decimal(15, 2)
+  commissionPaid    Boolean   @default(false) @map("commission_paid")
+  status            String    @default("pendente")
+  subsidy           Decimal   @default(0) @db.Decimal(15, 2)
+  downPayment       Decimal   @default(0) @map("down_payment") @db.Decimal(15, 2)
+  financedValue     Decimal?  @map("financed_value") @db.Decimal(15, 2)
+  monthlyPayment    Decimal?  @map("monthly_payment") @db.Decimal(15, 2)
+  termMonths        Int?      @map("term_months")
+  interestRate      Decimal?  @map("interest_rate") @db.Decimal(5, 2)
+  soldAt            DateTime  @map("sold_at") @db.Date
+  creditApprovedAt  DateTime? @map("credit_approved_at") @db.Date
+  contractSignedAt  DateTime? @map("contract_signed_at") @db.Date
+  keysDeliveryAt    DateTime? @map("keys_delivery_at") @db.Date
+  notes             String?
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  organization  Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lead          Lead?               @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  property      Property?           @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  broker        User?               @relation(fields: [brokerId], references: [id], onDelete: SetNull)
+  team          Team?               @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  statusHistory SaleStatusHistory[]
+
+  @@map("sales")
+  @@index([organizationId])
+  @@index([brokerId])
+  @@index([soldAt])
+}
+
+model SaleStatusHistory {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  saleId         String   @map("sale_id")
+  previousStatus String?  @map("previous_status")
+  newStatus      String   @map("new_status")
+  changedBy      String?  @map("changed_by")
+  reason         String?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  sale Sale @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  @@map("sale_status_history")
+  @@index([saleId])
+}
+
+model Document {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  leadId         String   @map("lead_id")
+  uploadedBy     String?  @map("uploaded_by")
+  name           String
+  type           String?
+  fileUrl        String   @map("file_url")
+  fileSize       Int?     @map("file_size")
+  mimeType       String?  @map("mime_type")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lead         Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  uploader     User?        @relation(fields: [uploadedBy], references: [id], onDelete: SetNull)
+
+  @@map("documents")
+  @@index([leadId])
+}
+
+model MessageTemplate {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  userId         String?  @map("user_id")
+  name           String
+  type           String?
+  subject        String?
+  content        String
+  variables      String[]
+  isPublic       Boolean  @default(false) @map("is_public")
+  usageCount     Int      @default(0) @map("usage_count")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("message_templates")
+  @@index([organizationId])
+}
