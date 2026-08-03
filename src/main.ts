@@ -9,7 +9,26 @@ async function bootstrap() {
     forbidNonWhitelisted: true,
     transform: true,
   }))
-  app.enableCors({ origin: ['http://localhost:3000'], credentials: true })
+  const allowedOrigins = [
+    'http://localhost:3000',
+    process.env.FRONTEND_URL,
+  ].filter(Boolean) as string[]
+
+  app.enableCors({
+    origin: (origin, callback) => {
+      // Permitir requisições sem origin (ex: mobile, Postman)
+      if (!origin) return callback(null, true)
+
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true)
+      } else {
+        callback(new Error(`CORS bloqueado para origem: ${origin}`))
+      }
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  })
   app.setGlobalPrefix('api/v1')
   const port = process.env.PORT ?? 3001
   await app.listen(port)
