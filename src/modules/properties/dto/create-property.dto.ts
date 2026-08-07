@@ -89,7 +89,12 @@ export class CreatePropertyDto {
   maxIncome?: number
 
   @IsOptional()
-  @IsIn(['lancamento','em_obras','pronto_morar','entregue','esgotado','suspenso'])
+  @IsIn([
+    // Empreendimento
+    'lancamento', 'em_obras', 'pronto_morar', 'entregue', 'esgotado', 'suspenso',
+    // Revenda
+    'disponivel', 'reservado', 'vendido',
+  ])
   propertyStatus?: string
 
   @IsOptional()
