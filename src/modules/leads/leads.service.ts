@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common'
+import { Injectable, NotFoundException, ForbiddenException, ConflictException } from '@nestjs/common'
 import { PrismaService } from '../../prisma/prisma.service'
 import { CreateLeadDto } from './dto/create-lead.dto'
 import { QueryLeadDto } from './dto/query-lead.dto'
@@ -12,6 +12,28 @@ export class LeadsService {
     dto: CreateLeadDto,
     requestingUser: { id: string; role: string; teamId: string | null },
   ) {
+    const phoneClean = dto.phone.replace(/\D/g, '')
+
+    const existing = await this.prisma.lead.findFirst({
+      where: {
+        organizationId,
+        active: true,
+        OR: [
+          { phone: dto.phone },
+          { phone: phoneClean },
+          { phone2: dto.phone },
+          { phone2: phoneClean },
+        ],
+      },
+      select: { id: true, name: true, phone: true, status: true },
+    })
+
+    if (existing) {
+      throw new ConflictException(
+        `Já existe um lead cadastrado com esse telefone: ${existing.name} (${existing.status})`,
+      )
+    }
+
     const ownerId = dto.ownerId ?? requestingUser.id
     const teamId = dto.teamId ?? requestingUser.teamId ?? undefined
 
