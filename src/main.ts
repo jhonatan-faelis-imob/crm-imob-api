@@ -1,6 +1,10 @@
 import { NestFactory } from '@nestjs/core'
 import { ValidationPipe } from '@nestjs/common'
+import { Prisma } from '@prisma/client'
 import { AppModule } from './app.module'
+
+;(Prisma.Decimal.prototype as unknown as { toJSON: () => number }).toJSON =
+  function (this: Prisma.Decimal) { return this.toNumber() }
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule)

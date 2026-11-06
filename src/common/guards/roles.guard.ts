@@ -2,7 +2,7 @@ import { Injectable, CanActivate, ExecutionContext, ForbiddenException } from '@
 import { Reflector } from '@nestjs/core'
 import { ROLES_KEY } from '../decorators/roles.decorator'
 
-const HIERARCHY: Record<string, number> = {
+export const HIERARCHY: Record<string, number> = {
   diretor: 5,
   gerente: 4,
   coordenador: 3,

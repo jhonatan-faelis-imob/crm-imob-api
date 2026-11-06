@@ -4,6 +4,9 @@ import {
 import { Type } from 'class-transformer'
 
 export class CreateGoalDto {
+  @IsIn(['organizacao', 'equipe', 'individual'])
+  scope: 'organizacao' | 'equipe' | 'individual'
+
   @IsOptional()
   @IsUUID()
   teamId?: string

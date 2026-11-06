@@ -1,9 +1,13 @@
-import { IsInt, IsOptional, IsString, IsDateString, Min } from 'class-validator'
+import { IsInt, IsOptional, IsString, IsDateString, IsUUID, Min } from 'class-validator'
 import { Type } from 'class-transformer'
 
 export class CreateDailyEntryDto {
   @IsDateString()
   date: string
+
+  @IsOptional()
+  @IsUUID()
+  userId?: string
 
   @IsOptional()
   @Type(() => Number)
