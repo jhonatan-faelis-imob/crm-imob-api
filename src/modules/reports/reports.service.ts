@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { PrismaService } from '../../prisma/prisma.service'
+import { computeTypedProgress } from '../goals/goal-progress'
 
 @Injectable()
 export class ReportsService {
@@ -119,36 +120,68 @@ export class ReportsService {
     organizationId: string,
     startDate: string,
     endDate: string,
+    requestingUser: { id: string; role: string; teamId: string | null },
   ) {
-    const sales = await this.prisma.sale.groupBy({
-      by: ['brokerId'],
+    const seesOrganization = ['diretor', 'gerente'].includes(requestingUser.role)
+    const start = new Date(startDate)
+    const end = new Date(endDate)
+
+    const brokers = await this.prisma.user.findMany({
       where: {
         organizationId,
-        status: { not: 'cancelado' },
-        soldAt: { gte: new Date(startDate), lte: new Date(endDate) },
+        active: true,
+        role: { in: ['corretor', 'coordenador', 'gerente'] },
+        ...(seesOrganization
+          ? {}
+          : requestingUser.teamId
+            ? { teamId: requestingUser.teamId }
+            : { id: requestingUser.id }),
       },
-      _sum: { saleValue: true, commissionValue: true },
-      _count: { id: true },
-      orderBy: { _sum: { saleValue: 'desc' } },
-      take: 10,
-    })
-
-    const brokerIds = sales.map(s => s.brokerId).filter(Boolean) as string[]
-    const brokers = await this.prisma.user.findMany({
-      where: { id: { in: brokerIds } },
       select: { id: true, name: true, avatarUrl: true, team: { select: { name: true } } },
     })
+    const brokerIds = brokers.map((broker) => broker.id)
 
-    return sales.map((sale, index) => {
-      const broker = brokers.find(b => b.id === sale.brokerId)
-      return {
-        position: index + 1,
-        broker,
-        vgv: sale._sum.saleValue ?? 0,
-        commission: sale._sum.commissionValue ?? 0,
-        units: sale._count.id,
-      }
-    })
+    const [sales, goals] = await Promise.all([
+      this.prisma.sale.groupBy({
+        by: ['brokerId'],
+        where: {
+          organizationId,
+          brokerId: { in: brokerIds },
+          status: { not: 'cancelado' },
+          soldAt: { gte: start, lte: end },
+        },
+        _sum: { saleValue: true, commissionValue: true },
+        _count: { id: true },
+      }),
+      this.prisma.goal.findMany({
+        where: {
+          organizationId,
+          active: true,
+          userId: { in: brokerIds },
+          periodStart: { lte: end },
+          periodEnd: { gte: start },
+        },
+        orderBy: { periodStart: 'desc' },
+      }),
+    ])
+
+    const entries = await Promise.all(
+      brokers.map(async (broker) => {
+        const sale = sales.find((item) => item.brokerId === broker.id)
+        const goal = goals.find((item) => item.userId === broker.id)
+        return {
+          broker,
+          vgv: Number(sale?._sum.saleValue ?? 0),
+          commission: Number(sale?._sum.commissionValue ?? 0),
+          units: sale?._count.id ?? 0,
+          goalPercent: goal ? (await computeTypedProgress(this.prisma, goal)).percent : null,
+        }
+      }),
+    )
+
+    return entries
+      .sort((a, b) => b.vgv - a.vgv || b.units - a.units || a.broker.name.localeCompare(b.broker.name))
+      .map((entry, index) => ({ position: index + 1, ...entry }))
   }
 
   async getSalesByProperty(organizationId: string, startDate: string, endDate: string) {

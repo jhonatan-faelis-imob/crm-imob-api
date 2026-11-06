@@ -1,7 +1,34 @@
 import {
   IsString, IsNotEmpty, IsOptional, IsIn,
-  IsNumber, IsInt, IsDateString, IsUUID } from 'class-validator'
+  IsNumber, IsInt, IsDateString, IsUUID, IsPositive, ValidateNested } from 'class-validator'
 import { Type } from 'class-transformer'
+
+export class ConversionRatesDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsPositive()
+  appointmentsPerClosing?: number
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsPositive()
+  simulationsPerAppointment?: number
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsPositive()
+  qualificationsPerSimulation?: number
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsPositive()
+  prospectsPerQualification?: number
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsPositive()
+  callsPerProspect?: number
+}
 
 export class CreateGoalDto {
   @IsIn(['organizacao', 'equipe', 'individual'])
@@ -39,10 +66,20 @@ export class CreateGoalDto {
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
+  targetValue?: number
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
   avgTicket?: number
 
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
   commissionPct?: number
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ConversionRatesDto)
+  conversionRates?: ConversionRatesDto
 }

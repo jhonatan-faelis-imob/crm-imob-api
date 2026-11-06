@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param } from '@nestjs/common'
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query } from '@nestjs/common'
 import { GoalsService } from './goals.service'
 import { CreateGoalDto } from './dto/create-goal.dto'
 import { UpdateGoalDto } from './dto/update-goal.dto'
@@ -23,6 +23,14 @@ export class GoalsController {
     @CurrentUser() user: { id: string; organizationId: string; role: string; teamId: string | null },
   ) {
     return this.service.findAll(user.organizationId, user)
+  }
+
+  @Get('auto-fill')
+  getAutoFill(
+    @CurrentUser() user: { id: string; organizationId: string },
+    @Query('date') date?: string,
+  ) {
+    return this.service.getAutoFill(user.organizationId, user.id, date)
   }
 
   @Get(':id')

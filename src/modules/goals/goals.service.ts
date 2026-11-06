@@ -6,18 +6,31 @@ import {
 } from '@nestjs/common'
 import type { Goal, Prisma } from '@prisma/client'
 import { HIERARCHY } from '../../common/guards/roles.guard'
-import { daysBetween, toDateOnly, todayInBusinessTimeZone } from '../../common/utils/date'
+import {
+  businessDayBounds,
+  daysBetween,
+  toDateOnly,
+  todayInBusinessTimeZone,
+} from '../../common/utils/date'
 import { PrismaService } from '../../prisma/prisma.service'
-import { CreateGoalDto } from './dto/create-goal.dto'
+import { ConversionRatesDto, CreateGoalDto } from './dto/create-goal.dto'
 import { UpdateGoalDto } from './dto/update-goal.dto'
 import { CreateDailyEntryDto } from './dto/create-daily-entry.dto'
-import { computeGoalProgress } from './goal-progress'
+import { computeGoalProgress, computeTypedProgress } from './goal-progress'
 
 type RequestingUser = { id: string; role: string; teamId: string | null }
 type GoalScope = CreateGoalDto['scope']
 
 const FUNNEL_KEYS = ['calls', 'prospects', 'qualifications', 'simulations', 'appointments', 'closings'] as const
 type FunnelCounts = Record<(typeof FUNNEL_KEYS)[number], number>
+
+const DEFAULT_CONVERSION_RATES = {
+  appointmentsPerClosing: 3,
+  simulationsPerAppointment: 2,
+  qualificationsPerSimulation: 2,
+  prospectsPerQualification: 3,
+  callsPerProspect: 5,
+}
 
 function isAtLeast(role: string, minimum: string) {
   return (HIERARCHY[role] ?? 0) >= HIERARCHY[minimum]
@@ -32,18 +45,41 @@ function percent(current: number, target: number) {
   return target > 0 ? Math.round((current / target) * 1000) / 10 : 0
 }
 
-// O funil só existe em meta individual; os demais escopos limpam o que houver
-function funnelTargets(scope: GoalScope, targetVgv?: number | null, avgTicket?: number | null) {
-  if (scope === 'individual' && targetVgv && avgTicket && avgTicket > 0) {
+// Aplica as fontes em ordem, ignorando chaves vazias: o DTO traz os campos não enviados
+// como undefined, que num spread apagariam o padrão
+function resolveRates(...sources: unknown[]) {
+  const rates = { ...DEFAULT_CONVERSION_RATES }
+  for (const source of sources as (ConversionRatesDto | null | undefined)[]) {
+    for (const key of Object.keys(rates) as (keyof typeof rates)[]) {
+      const value = source?.[key]
+      if (value) rates[key] = Number(value)
+    }
+  }
+  return rates
+}
+
+// O funil só existe em meta individual de VGV; as demais limpam o que houver
+function funnelTargets(
+  scope: GoalScope,
+  type: string,
+  targetVgv: number | null | undefined,
+  avgTicket: number | null | undefined,
+  rates: typeof DEFAULT_CONVERSION_RATES,
+) {
+  if (scope === 'individual' && type === 'vgv' && targetVgv && avgTicket && avgTicket > 0) {
     const units = Math.ceil(targetVgv / avgTicket)
+    const appointments = Math.ceil(units * rates.appointmentsPerClosing)
+    const simulations = Math.ceil(appointments * rates.simulationsPerAppointment)
+    const qualifications = Math.ceil(simulations * rates.qualificationsPerSimulation)
+    const prospects = Math.ceil(qualifications * rates.prospectsPerQualification)
     return {
       goalUnits: units,
       goalClosings: units,
-      goalAppointments: units * 3,
-      goalSimulations: units * 6,
-      goalQualifications: units * 12,
-      goalProspects: units * 36,
-      goalCalls: units * 180,
+      goalAppointments: appointments,
+      goalSimulations: simulations,
+      goalQualifications: qualifications,
+      goalProspects: prospects,
+      goalCalls: Math.ceil(prospects * rates.callsPerProspect),
     }
   }
   return {
@@ -62,14 +98,16 @@ export class GoalsService {
   constructor(private prisma: PrismaService) {}
 
   async create(organizationId: string, dto: CreateGoalDto, requestingUser: RequestingUser) {
-    const { scope, userId, teamId, ...data } = dto
+    const { scope, userId, teamId, conversionRates, ...data } = dto
     const owner = await this.resolveOwner(organizationId, scope, { userId, teamId }, requestingUser)
+    const rates = resolveRates(conversionRates)
 
     const goal = await this.prisma.goal.create({
       data: {
         ...data,
         ...owner,
-        ...funnelTargets(scope, dto.targetVgv, dto.avgTicket),
+        ...funnelTargets(scope, dto.type, dto.targetVgv, dto.avgTicket, rates),
+        ...(scope === 'individual' && { conversionRates: rates }),
         organizationId,
         periodStart: toDateOnly(dto.periodStart),
         periodEnd: toDateOnly(dto.periodEnd),
@@ -125,6 +163,13 @@ export class GoalsService {
     const currentVgv = Number(goal.currentVgv)
     const targetUnits = goal.goalUnits ?? 0
 
+    const progress = await computeTypedProgress(this.prisma, goal)
+    const expectedPercent = Math.round((daysElapsed / daysTotal) * 1000) / 10
+    const actualPercent = progress.percent
+    let paceStatus = 'atrasado'
+    if (actualPercent >= expectedPercent + 5) paceStatus = 'adiantado'
+    else if (actualPercent >= expectedPercent - 10) paceStatus = 'no_ritmo'
+
     const summary = {
       goal,
       period: {
@@ -140,9 +185,11 @@ export class GoalsService {
         current: goal.currentUnits,
         percent: percent(goal.currentUnits, targetUnits),
       },
+      progress,
+      pace: { expectedPercent, actualPercent, status: paceStatus },
     }
 
-    if (goalScope(goal) !== 'individual') return summary
+    if (goalScope(goal) !== 'individual' || goal.goalCalls === null) return summary
 
     const [entries, todayEntry] = await Promise.all([
       this.prisma.goalDailyEntry.aggregate({
@@ -180,6 +227,48 @@ export class GoalsService {
       ...summary,
       funnel: { realized, target: targets, remaining, dailyTarget },
       today: todayEntry,
+    }
+  }
+
+  async getAutoFill(organizationId: string, userId: string, date?: string) {
+    if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      throw new BadRequestException('Use a data no formato YYYY-MM-DD')
+    }
+    const day = date ?? todayInBusinessTimeZone()
+    const { start, end } = businessDayBounds(day)
+    const period = { gte: start, lte: end }
+
+    const [calls, prospects, stageMoves, closings] = await Promise.all([
+      this.prisma.interaction.count({
+        where: { organizationId, userId, type: { in: ['ligacao', 'whatsapp'] }, occurredAt: period },
+      }),
+      this.prisma.lead.count({ where: { organizationId, ownerId: userId, createdAt: period } }),
+      // distinct: mover o mesmo card duas vezes para a etapa conta um lead só
+      this.prisma.leadStageHistory.findMany({
+        where: {
+          organizationId,
+          changedBy: userId,
+          createdAt: period,
+          toStageName: { in: ['qualificacao', 'simulacao', 'agendamento'] },
+        },
+        distinct: ['leadId', 'toStageName'],
+        select: { toStageName: true },
+      }),
+      this.prisma.sale.count({
+        where: { organizationId, brokerId: userId, status: { not: 'cancelado' }, soldAt: toDateOnly(day) },
+      }),
+    ])
+
+    const countStage = (name: string) => stageMoves.filter((move) => move.toStageName === name).length
+
+    return {
+      date: day,
+      calls,
+      prospects,
+      qualifications: countStage('qualificacao'),
+      simulations: countStage('simulacao'),
+      appointments: countStage('agendamento'),
+      closings,
     }
   }
 
@@ -282,19 +371,21 @@ export class GoalsService {
 
     if (!canEdit) throw new ForbiddenException('Sem permissão para editar esta meta')
 
-    const { scope: nextScope, userId, teamId, periodStart, periodEnd, ...data } = dto
+    const { scope: nextScope, userId, teamId, periodStart, periodEnd, conversionRates, ...data } = dto
     const scope = nextScope ?? goalScope(goal)
     const owner = await this.resolveOwner(organizationId, scope, { userId, teamId }, requestingUser, goal)
 
     const targetVgv = dto.targetVgv ?? Number(goal.targetVgv)
     const avgTicket = dto.avgTicket ?? Number(goal.avgTicket)
+    const rates = resolveRates(goal.conversionRates, conversionRates)
 
     const updated = await this.prisma.goal.update({
       where: { id },
       data: {
         ...data,
         ...owner,
-        ...funnelTargets(scope, targetVgv, avgTicket),
+        ...funnelTargets(scope, dto.type ?? goal.type, targetVgv, avgTicket, rates),
+        ...(scope === 'individual' && { conversionRates: rates }),
         ...(periodStart && { periodStart: toDateOnly(periodStart) }),
         ...(periodEnd && { periodEnd: toDateOnly(periodEnd) }),
       },

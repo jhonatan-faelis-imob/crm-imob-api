@@ -1,13 +1,10 @@
 import { Injectable, NotFoundException, ForbiddenException, ConflictException } from '@nestjs/common'
+import { normalizeStageName } from '../../common/utils/stage'
 import { PrismaService } from '../../prisma/prisma.service'
 import { CreateLeadDto } from './dto/create-lead.dto'
 import { QueryLeadDto } from './dto/query-lead.dto'
 
 const TERMINAL_STATUSES = ['ganho', 'perdido']
-
-function normalizeStageName(name: string) {
-  return name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase()
-}
 
 function statusForStage(stageName: string, currentStatus: string) {
   const name = normalizeStageName(stageName)
@@ -49,7 +46,7 @@ export class LeadsService {
     const ownerId = dto.ownerId ?? requestingUser.id
     const teamId = dto.teamId ?? requestingUser.teamId ?? undefined
 
-    return this.prisma.lead.create({
+    const lead = await this.prisma.lead.create({
       data: { ...dto, organizationId, ownerId, teamId },
       include: {
         owner: { select: { id: true, name: true, avatarUrl: true } },
@@ -57,6 +54,20 @@ export class LeadsService {
         tags: { include: { tag: true } },
       },
     })
+
+    if (lead.funnelStage) {
+      await this.prisma.leadStageHistory.create({
+        data: {
+          organizationId,
+          leadId: lead.id,
+          toStageId: lead.funnelStage.id,
+          toStageName: normalizeStageName(lead.funnelStage.name),
+          changedBy: requestingUser.id,
+        },
+      })
+    }
+
+    return lead
   }
 
   async findAll(
@@ -183,23 +194,59 @@ export class LeadsService {
     })
   }
 
-  async updateStage(organizationId: string, id: string, funnelStageId: string) {
+  async getActiveSale(organizationId: string, id: string) {
+    await this.prisma.lead.findFirstOrThrow({ where: { id, organizationId } })
+    return this.prisma.sale.findFirst({
+      where: { organizationId, leadId: id, status: { not: 'cancelado' } },
+      select: { id: true, saleValue: true, status: true, soldAt: true },
+    })
+  }
+
+  async updateStage(organizationId: string, id: string, funnelStageId: string, changedBy: string) {
     const lead = await this.prisma.lead.findFirstOrThrow({ where: { id, organizationId } })
     const stage = await this.prisma.funnelStage.findFirst({ where: { id: funnelStageId, organizationId } })
     if (!stage) throw new NotFoundException('Etapa não encontrada')
 
-    return this.prisma.lead.update({
-      where: { id },
-      data: { funnelStageId, status: statusForStage(stage.name, lead.status), updatedAt: new Date() },
-    })
+    const [updated] = await this.prisma.$transaction([
+      this.prisma.lead.update({
+        where: { id },
+        data: { funnelStageId, status: statusForStage(stage.name, lead.status), updatedAt: new Date() },
+      }),
+      this.prisma.leadStageHistory.create({
+        data: {
+          organizationId,
+          leadId: id,
+          fromStageId: lead.funnelStageId,
+          toStageId: funnelStageId,
+          toStageName: normalizeStageName(stage.name),
+          changedBy,
+        },
+      }),
+    ])
+
+    return updated
   }
 
-  async markAsLost(organizationId: string, id: string, lostReason: string) {
-    await this.prisma.lead.findFirstOrThrow({ where: { id, organizationId } })
-    return this.prisma.lead.update({
-      where: { id },
-      data: { status: 'perdido', lostReason, funnelStageId: null },
-    })
+  async markAsLost(organizationId: string, id: string, lostReason: string, changedBy: string) {
+    const lead = await this.prisma.lead.findFirstOrThrow({ where: { id, organizationId } })
+
+    const [updated] = await this.prisma.$transaction([
+      this.prisma.lead.update({
+        where: { id },
+        data: { status: 'perdido', lostReason, funnelStageId: null },
+      }),
+      this.prisma.leadStageHistory.create({
+        data: {
+          organizationId,
+          leadId: id,
+          fromStageId: lead.funnelStageId,
+          toStageName: 'perdido',
+          changedBy,
+        },
+      }),
+    ])
+
+    return updated
   }
 
   async archive(organizationId: string, id: string) {

@@ -25,11 +25,11 @@ export class ReportsController {
 
   @Get('broker-ranking')
   getBrokerRanking(
-    @CurrentUser() user: { organizationId: string },
+    @CurrentUser() user: { id: string; organizationId: string; role: string; teamId: string | null },
     @Query('startDate') startDate: string,
     @Query('endDate') endDate: string,
   ) {
-    return this.service.getBrokerRanking(user.organizationId, startDate, endDate)
+    return this.service.getBrokerRanking(user.organizationId, startDate, endDate, user)
   }
 
   @Get('sales-by-property')

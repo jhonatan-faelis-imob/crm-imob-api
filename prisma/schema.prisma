@@ -166,12 +166,30 @@ model Lead {
   documents    Document[]
   sales        Sale[]
   tags         LeadTagRelation[]
+  stageHistory LeadStageHistory[]
 
   @@map("leads")
   @@index([organizationId])
   @@index([ownerId])
   @@index([status])
   @@index([funnelStageId])
+}
+
+model LeadStageHistory {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  leadId         String   @map("lead_id")
+  fromStageId    String?  @map("from_stage_id")
+  toStageId      String?  @map("to_stage_id")
+  toStageName    String   @map("to_stage_name")
+  changedBy      String?  @map("changed_by")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@map("lead_stage_history")
+  @@index([organizationId, changedBy, createdAt])
+  @@index([leadId])
 }
 
 model LeadTag {
@@ -315,6 +333,8 @@ model Goal {
   periodStart        DateTime @map("period_start") @db.Date
   periodEnd          DateTime @map("period_end") @db.Date
   targetVgv          Decimal? @map("target_vgv") @db.Decimal(15, 2)
+  targetValue        Decimal? @map("target_value") @db.Decimal(15, 2)
+  conversionRates    Json?    @map("conversion_rates")
   avgTicket          Decimal? @map("avg_ticket") @db.Decimal(15, 2)
   commissionPct      Decimal? @map("commission_pct") @db.Decimal(5, 2)
   goalUnits          Int?     @map("goal_units")

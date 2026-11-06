@@ -33,6 +33,14 @@ export class LeadsController {
     return this.service.findById(user.organizationId, id, user)
   }
 
+  @Get(':id/active-sale')
+  getActiveSale(
+    @CurrentUser() user: { organizationId: string },
+    @Param('id') id: string,
+  ) {
+    return this.service.getActiveSale(user.organizationId, id)
+  }
+
   @Patch(':id')
   update(
     @CurrentUser() user: { organizationId: string },
@@ -44,20 +52,20 @@ export class LeadsController {
 
   @Patch(':id/stage')
   updateStage(
-    @CurrentUser() user: { organizationId: string },
+    @CurrentUser() user: { id: string; organizationId: string },
     @Param('id') id: string,
     @Body('funnelStageId') funnelStageId: string,
   ) {
-    return this.service.updateStage(user.organizationId, id, funnelStageId)
+    return this.service.updateStage(user.organizationId, id, funnelStageId, user.id)
   }
 
   @Patch(':id/lost')
   markAsLost(
-    @CurrentUser() user: { organizationId: string },
+    @CurrentUser() user: { id: string; organizationId: string },
     @Param('id') id: string,
     @Body('lostReason') lostReason: string,
   ) {
-    return this.service.markAsLost(user.organizationId, id, lostReason)
+    return this.service.markAsLost(user.organizationId, id, lostReason, user.id)
   }
 
   @Delete(':id')
