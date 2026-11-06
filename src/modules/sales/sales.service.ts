@@ -1,20 +1,42 @@
-import { Injectable, NotFoundException } from '@nestjs/common'
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common'
 import { PrismaService } from '../../prisma/prisma.service'
+import { GoalsService } from '../goals/goals.service'
 import { CreateSaleDto } from './dto/create-sale.dto'
 import { UpdateSaleStatusDto } from './dto/update-sale-status.dto'
 import { QuerySaleDto } from './dto/query-sale.dto'
 
 @Injectable()
 export class SalesService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private goalsService: GoalsService,
+  ) {}
 
   async create(
     organizationId: string,
     requestingUser: { id: string; teamId: string | null },
     dto: CreateSaleDto,
   ) {
-    const brokerId = dto.brokerId ?? requestingUser.id
-    const teamId = dto.teamId ?? requestingUser.teamId ?? undefined
+    const lead = dto.leadId
+      ? await this.prisma.lead.findFirst({
+          where: { id: dto.leadId, organizationId },
+          select: { ownerId: true, teamId: true },
+        })
+      : null
+    if (dto.leadId && !lead) throw new NotFoundException('Lead não encontrado')
+
+    if (dto.leadId) {
+      const existingSale = await this.prisma.sale.findFirst({
+        where: { organizationId, leadId: dto.leadId, status: { not: 'cancelado' } },
+        select: { id: true },
+      })
+      if (existingSale) throw new ConflictException('Este lead já possui uma venda registrada')
+    }
+
+    // A venda conta para o dono do lead, não para quem registrou: gerente ou coordenador
+    // regularizando um lead não pode entrar no ranking no lugar do corretor
+    const brokerId = dto.brokerId ?? lead?.ownerId ?? requestingUser.id
+    const teamId = dto.teamId ?? lead?.teamId ?? requestingUser.teamId ?? undefined
     const commissionValue = dto.commissionPct && dto.saleValue
       ? (dto.saleValue * dto.commissionPct) / 100
       : undefined
@@ -64,6 +86,8 @@ export class SalesService {
         changedBy: requestingUser.id,
       },
     })
+
+    await this.goalsService.recalculateForSale(organizationId, sale)
 
     return sale
   }
@@ -153,11 +177,46 @@ export class SalesService {
       }),
     ])
 
+    const wasCancelled = sale.status === 'cancelado'
+    const isCancelled = dto.status === 'cancelado'
+    if (wasCancelled !== isCancelled) {
+      await this.goalsService.recalculateForSale(organizationId, updated)
+    }
+
     return updated
   }
 
+  // Venda cancelada não conta: o lead continua em Ganho sem nada somando nas metas
+  async getPendingLeads(
+    organizationId: string,
+    requestingUser: { role: string; teamId: string | null },
+  ) {
+    return this.prisma.lead.findMany({
+      where: {
+        organizationId,
+        active: true,
+        ...(requestingUser.role === 'coordenador' && requestingUser.teamId
+          ? { teamId: requestingUser.teamId }
+          : {}),
+        OR: [
+          { status: 'ganho' },
+          { funnelStage: { name: { equals: 'Ganho', mode: 'insensitive' } } },
+        ],
+        sales: { none: { status: { not: 'cancelado' } } },
+      },
+      select: {
+        id: true,
+        name: true,
+        interestValue: true,
+        funnelStageId: true,
+        owner: { select: { id: true, name: true } },
+      },
+      orderBy: { updatedAt: 'desc' },
+    })
+  }
+
   async getVgvSummary(organizationId: string, startDate?: string, endDate?: string) {
-    const where: Record<string, unknown> = { organizationId }
+    const where: Record<string, unknown> = { organizationId, status: { not: 'cancelado' } }
     if (startDate || endDate) {
       where.soldAt = {
         ...(startDate && { gte: new Date(startDate) }),

@@ -3,6 +3,18 @@ import { PrismaService } from '../../prisma/prisma.service'
 import { CreateLeadDto } from './dto/create-lead.dto'
 import { QueryLeadDto } from './dto/query-lead.dto'
 
+const TERMINAL_STATUSES = ['ganho', 'perdido']
+
+function normalizeStageName(name: string) {
+  return name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase()
+}
+
+function statusForStage(stageName: string, currentStatus: string) {
+  const name = normalizeStageName(stageName)
+  if (TERMINAL_STATUSES.includes(name)) return name
+  return TERMINAL_STATUSES.includes(currentStatus) ? 'novo' : currentStatus
+}
+
 @Injectable()
 export class LeadsService {
   constructor(private prisma: PrismaService) {}
@@ -172,10 +184,13 @@ export class LeadsService {
   }
 
   async updateStage(organizationId: string, id: string, funnelStageId: string) {
-    await this.prisma.lead.findFirstOrThrow({ where: { id, organizationId } })
+    const lead = await this.prisma.lead.findFirstOrThrow({ where: { id, organizationId } })
+    const stage = await this.prisma.funnelStage.findFirst({ where: { id: funnelStageId, organizationId } })
+    if (!stage) throw new NotFoundException('Etapa não encontrada')
+
     return this.prisma.lead.update({
       where: { id },
-      data: { funnelStageId, updatedAt: new Date() },
+      data: { funnelStageId, status: statusForStage(stage.name, lead.status), updatedAt: new Date() },
     })
   }
 

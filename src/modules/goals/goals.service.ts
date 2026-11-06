@@ -1,4 +1,5 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
+import type { Goal } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
 import { CreateGoalDto } from './dto/create-goal.dto'
 import { CreateDailyEntryDto } from './dto/create-daily-entry.dto'
@@ -95,14 +96,40 @@ export class GoalsService {
   }
 
   async updateProgress(organizationId: string, goalId: string) {
-    // Recalcular progresso com base nas vendas do período
     const goal = await this.prisma.goal.findFirstOrThrow({
       where: { id: goalId, organizationId },
     })
 
-    const sales = await this.prisma.sale.aggregate({
+    return this.refreshProgress(goal)
+  }
+
+  async recalculateForSale(
+    organizationId: string,
+    sale: { soldAt: Date; brokerId: string | null; teamId: string | null },
+  ) {
+    const goals = await this.prisma.goal.findMany({
       where: {
         organizationId,
+        active: true,
+        periodStart: { lte: sale.soldAt },
+        periodEnd: { gte: sale.soldAt },
+        OR: [
+          { userId: null, teamId: null },
+          ...(sale.brokerId ? [{ userId: sale.brokerId }] : []),
+          ...(sale.teamId ? [{ teamId: sale.teamId }] : []),
+        ],
+      },
+    })
+
+    await Promise.all(goals.map((goal) => this.refreshProgress(goal)))
+  }
+
+  // Recalcular progresso com base nas vendas do período
+  private async refreshProgress(goal: Goal) {
+    const sales = await this.prisma.sale.aggregate({
+      where: {
+        organizationId: goal.organizationId,
+        status: { not: 'cancelado' },
         ...(goal.userId ? { brokerId: goal.userId } : {}),
         ...(goal.teamId ? { teamId: goal.teamId } : {}),
         soldAt: { gte: goal.periodStart, lte: goal.periodEnd },
@@ -112,7 +139,7 @@ export class GoalsService {
     })
 
     return this.prisma.goal.update({
-      where: { id: goalId },
+      where: { id: goal.id },
       data: {
         currentVgv: sales._sum.saleValue ?? 0,
         currentUnits: sales._count.id,

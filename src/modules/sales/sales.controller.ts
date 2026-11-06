@@ -36,6 +36,14 @@ export class SalesController {
     return this.service.getVgvSummary(user.organizationId, startDate, endDate)
   }
 
+  @Get('pending-leads')
+  @Roles('coordenador')
+  getPendingLeads(
+    @CurrentUser() user: { organizationId: string; role: string; teamId: string | null },
+  ) {
+    return this.service.getPendingLeads(user.organizationId, user)
+  }
+
   @Get(':id')
   findOne(
     @CurrentUser() user: { organizationId: string },

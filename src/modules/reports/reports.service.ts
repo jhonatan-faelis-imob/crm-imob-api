@@ -59,6 +59,7 @@ export class ReportsService {
         where: {
           organizationId,
           ...(role === 'corretor' ? { brokerId: userId } : {}),
+          status: { not: 'cancelado' },
           soldAt: { gte: startOfMonth, lte: endOfMonth },
         },
         _sum: { saleValue: true },
@@ -92,6 +93,7 @@ export class ReportsService {
     const sales = await this.prisma.sale.findMany({
       where: {
         organizationId,
+        status: { not: 'cancelado' },
         soldAt: { gte: new Date(startDate), lte: new Date(endDate) },
       },
       select: { soldAt: true, saleValue: true },
@@ -122,6 +124,7 @@ export class ReportsService {
       by: ['brokerId'],
       where: {
         organizationId,
+        status: { not: 'cancelado' },
         soldAt: { gte: new Date(startDate), lte: new Date(endDate) },
       },
       _sum: { saleValue: true, commissionValue: true },
@@ -153,6 +156,7 @@ export class ReportsService {
       by: ['propertyId'],
       where: {
         organizationId,
+        status: { not: 'cancelado' },
         soldAt: { gte: new Date(startDate), lte: new Date(endDate) },
       },
       _sum: { saleValue: true },
@@ -175,6 +179,7 @@ export class ReportsService {
       by: ['teamId'],
       where: {
         organizationId,
+        status: { not: 'cancelado' },
         soldAt: { gte: new Date(startDate), lte: new Date(endDate) },
       },
       _sum: { saleValue: true },
@@ -187,6 +192,7 @@ export class ReportsService {
     const sales = await this.prisma.sale.findMany({
       where: {
         organizationId,
+        status: { not: 'cancelado' },
         soldAt: { gte: new Date(startDate), lte: new Date(endDate) },
       },
       select: { lead: { select: { income: true } } },
