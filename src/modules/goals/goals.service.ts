@@ -11,6 +11,7 @@ import { PrismaService } from '../../prisma/prisma.service'
 import { CreateGoalDto } from './dto/create-goal.dto'
 import { UpdateGoalDto } from './dto/update-goal.dto'
 import { CreateDailyEntryDto } from './dto/create-daily-entry.dto'
+import { computeGoalProgress } from './goal-progress'
 
 type RequestingUser = { id: string; role: string; teamId: string | null }
 type GoalScope = CreateGoalDto['scope']
@@ -260,24 +261,9 @@ export class GoalsService {
 
   // Recalcular progresso com base nas vendas do período
   private async recalculateGoal(goal: Goal) {
-    const sales = await this.prisma.sale.aggregate({
-      where: {
-        organizationId: goal.organizationId,
-        status: { not: 'cancelado' },
-        ...(goal.userId ? { brokerId: goal.userId } : {}),
-        ...(goal.teamId ? { teamId: goal.teamId } : {}),
-        soldAt: { gte: goal.periodStart, lte: goal.periodEnd },
-      },
-      _sum: { saleValue: true },
-      _count: { id: true },
-    })
-
     return this.prisma.goal.update({
       where: { id: goal.id },
-      data: {
-        currentVgv: sales._sum.saleValue ?? 0,
-        currentUnits: sales._count.id,
-      },
+      data: await computeGoalProgress(this.prisma, goal),
     })
   }
 
