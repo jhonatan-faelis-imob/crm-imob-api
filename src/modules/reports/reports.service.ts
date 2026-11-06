@@ -130,7 +130,7 @@ export class ReportsService {
       where: {
         organizationId,
         active: true,
-        role: { in: ['corretor', 'coordenador', 'gerente'] },
+        role: { in: ['corretor', 'coordenador', 'gerente', 'diretor'] },
         ...(seesOrganization
           ? {}
           : requestingUser.teamId

@@ -53,12 +53,11 @@ export class SalesController {
   }
 
   @Patch(':id/status')
-  @Roles('coordenador')
   updateStatus(
-    @CurrentUser() user: { id: string; organizationId: string },
+    @CurrentUser() user: { id: string; organizationId: string; role: string },
     @Param('id') id: string,
     @Body() dto: UpdateSaleStatusDto,
   ) {
-    return this.service.updateStatus(user.organizationId, id, user.id, dto)
+    return this.service.updateStatus(user.organizationId, id, user, dto)
   }
 }

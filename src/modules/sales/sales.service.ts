@@ -1,4 +1,5 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common'
+import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
+import { HIERARCHY } from '../../common/guards/roles.guard'
 import { PrismaService } from '../../prisma/prisma.service'
 import { GoalsService } from '../goals/goals.service'
 import { CreateSaleDto } from './dto/create-sale.dto'
@@ -157,11 +158,20 @@ export class SalesService {
   async updateStatus(
     organizationId: string,
     id: string,
-    userId: string,
+    requestingUser: { id: string; role: string },
     dto: UpdateSaleStatusDto,
   ) {
     const sale = await this.prisma.sale.findFirst({ where: { id, organizationId } })
     if (!sale) throw new NotFoundException('Venda não encontrada')
+
+    const isManager = (HIERARCHY[requestingUser.role] ?? 0) >= HIERARCHY.coordenador
+    const isOwnCancellation =
+      requestingUser.role === 'corretor' &&
+      dto.status === 'cancelado' &&
+      sale.brokerId === requestingUser.id
+    if (!isManager && !isOwnCancellation) {
+      throw new ForbiddenException('Corretor só pode cancelar a própria venda')
+    }
 
     const [updated] = await Promise.all([
       this.prisma.sale.update({ where: { id }, data: { status: dto.status } }),
@@ -171,7 +181,7 @@ export class SalesService {
           saleId: id,
           previousStatus: sale.status,
           newStatus: dto.status,
-          changedBy: userId,
+          changedBy: requestingUser.id,
           reason: dto.reason,
         },
       }),

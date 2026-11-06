@@ -198,7 +198,7 @@ export class LeadsService {
     await this.prisma.lead.findFirstOrThrow({ where: { id, organizationId } })
     return this.prisma.sale.findFirst({
       where: { organizationId, leadId: id, status: { not: 'cancelado' } },
-      select: { id: true, saleValue: true, status: true, soldAt: true },
+      select: { id: true, saleValue: true, status: true, soldAt: true, brokerId: true },
     })
   }
 
