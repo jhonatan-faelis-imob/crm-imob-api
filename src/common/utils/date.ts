@@ -20,6 +20,15 @@ export function businessHour(now = new Date()): number {
   return Number(hour)
 }
 
+export function businessTime(date: Date): string {
+  return new Intl.DateTimeFormat('pt-BR', {
+    timeZone: BUSINESS_TIME_ZONE,
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).format(date)
+}
+
 // Início e fim de um dia de negócio como instantes reais, para filtrar colunas com horário
 export function businessDayBounds(day: string): { start: Date; end: Date } {
   const offset = new Intl.DateTimeFormat('en-US', { timeZone: BUSINESS_TIME_ZONE, timeZoneName: 'longOffset' })

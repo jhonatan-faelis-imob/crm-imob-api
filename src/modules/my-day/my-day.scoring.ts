@@ -1,0 +1,287 @@
+import { businessDayBounds, businessTime, daysBetween, toDateOnly, todayInBusinessTimeZone } from '../../common/utils/date'
+import { normalizeStageName } from '../../common/utils/stage'
+import {
+  ADVANCED_STAGES,
+  ADVANCED_STAGE_BONUS,
+  BAND_NOW_MIN_SCORE,
+  BAND_TODAY_MIN_SCORE,
+  FIRST_CONTACT_GRACE_MINUTES,
+  STALE_DAYS_ADVANCED_STAGES,
+  STALE_DAYS_DEFAULT,
+  STALE_DAYS_URGENT,
+  URGENCY_BONUS,
+} from './my-day.config'
+
+export type ReasonCode =
+  | 'tarefa_vencida'
+  | 'primeiro_contato'
+  | 'urgencia_imediata'
+  | 'tarefa_hoje'
+  | 'sem_contato'
+  | 'sem_proxima_tarefa'
+
+type Severity = 'critical' | 'warning' | 'info'
+type Band = 'agora' | 'hoje' | 'atencao'
+
+interface Reason {
+  code: ReasonCode
+  label: string
+  severity: Severity
+  points: number
+}
+
+export interface ScoredTask {
+  id: string
+  leadId: string | null
+  title: string
+  type: string
+  priority: string
+  dueDate: Date
+  description: string | null
+}
+
+export interface ScoredLead {
+  id: string
+  name: string
+  phone: string
+  phone2: string | null
+  email: string | null
+  urgency: string
+  interestValue: { toNumber(): number } | null
+  lastContactAt: Date | null
+  createdAt: Date
+  funnelStage: { name: string; color: string } | null
+}
+
+// Tarefas do lead de qualquer responsável: decidem se ainda há algo agendado
+export interface OwnedLead extends ScoredLead {
+  tasks: { id: string; dueDate: Date }[]
+}
+
+export interface MyDayItem {
+  key: string
+  kind: 'lead' | 'task'
+  score: number
+  band: Band
+  reasons: Omit<Reason, 'points'>[]
+  daysWithoutContact: number | null
+  lead: {
+    id: string
+    name: string
+    phone: string
+    phone2: string | null
+    email: string | null
+    urgency: string
+    interestValue: number | null
+    lastContactAt: Date | null
+    stage: { name: string; color: string } | null
+  } | null
+  tasks: (Omit<ScoredTask, 'leadId'> & { overdueDays: number })[]
+}
+
+interface Clock {
+  now: Date
+  today: string
+  startOfToday: Date
+  endOfToday: Date
+}
+
+function clockAt(now: Date): Clock {
+  const today = todayInBusinessTimeZone(now)
+  const { start, end } = businessDayBounds(today)
+  return { now, today, startOfToday: start, endOfToday: end }
+}
+
+// Dias corridos no fuso do negócio: de 22h de ontem a 8h de hoje dá 1, não 0
+function calendarDaysSince(date: Date, clock: Clock) {
+  return daysBetween(toDateOnly(todayInBusinessTimeZone(date)), toDateOnly(clock.today))
+}
+
+function pluralDays(amount: number) {
+  return `${amount} ${amount === 1 ? 'dia' : 'dias'}`
+}
+
+function isAdvancedStage(lead: ScoredLead) {
+  return !!lead.funnelStage && ADVANCED_STAGES.includes(normalizeStageName(lead.funnelStage.name))
+}
+
+function bandFor(score: number): Band {
+  if (score >= BAND_NOW_MIN_SCORE) return 'agora'
+  return score >= BAND_TODAY_MIN_SCORE ? 'hoje' : 'atencao'
+}
+
+function overdueDays(dueDate: Date, clock: Clock) {
+  return dueDate < clock.startOfToday ? calendarDaysSince(dueDate, clock) : 0
+}
+
+function taskReasons(tasks: ScoredTask[], clock: Clock): Reason[] {
+  const reasons: Reason[] = []
+
+  const overdue = tasks.filter((task) => task.dueDate < clock.startOfToday)
+  if (overdue.length > 0) {
+    const days = Math.max(...overdue.map((task) => overdueDays(task.dueDate, clock)))
+    reasons.push({
+      code: 'tarefa_vencida',
+      label: `Tarefa vencida há ${pluralDays(days)}`,
+      severity: 'critical',
+      points: 100 + Math.min(days, 10) * 2,
+    })
+  }
+
+  const dueToday = tasks
+    .filter((task) => task.dueDate >= clock.startOfToday && task.dueDate <= clock.endOfToday)
+    .sort((a, b) => a.dueDate.getTime() - b.dueDate.getTime())
+  if (dueToday.length > 0) {
+    const [next] = dueToday
+    const isLate = next.dueDate < clock.now
+    const time = businessTime(next.dueDate)
+    reasons.push({
+      code: 'tarefa_hoje',
+      label: isLate ? `Tarefa de hoje, era às ${time}` : `Tarefa hoje às ${time}`,
+      severity: 'warning',
+      points: isLate ? 80 : 70,
+    })
+  }
+
+  return reasons
+}
+
+function leadReasons(lead: OwnedLead, daysWithoutContact: number, clock: Clock): Reason[] {
+  const reasons: Reason[] = []
+  const graceEnd = lead.createdAt.getTime() + FIRST_CONTACT_GRACE_MINUTES * 60_000
+
+  if (!lead.lastContactAt && clock.now.getTime() > graceEnd) {
+    reasons.push({ code: 'primeiro_contato', label: 'Primeiro contato', severity: 'critical', points: 90 })
+  }
+  if (lead.urgency === 'imediato' && daysWithoutContact >= STALE_DAYS_URGENT) {
+    reasons.push({ code: 'urgencia_imediata', label: 'Urgência imediata', severity: 'critical', points: 85 })
+  }
+
+  // Quem agendou um retorno já decidiu quando voltar a falar com o lead
+  const hasFutureTask = lead.tasks.some((task) => task.dueDate > clock.endOfToday)
+  if (hasFutureTask) return reasons
+
+  const staleDays = isAdvancedStage(lead) ? STALE_DAYS_ADVANCED_STAGES : STALE_DAYS_DEFAULT
+  if (daysWithoutContact >= staleDays) {
+    reasons.push({
+      code: 'sem_contato',
+      label: `Sem contato há ${pluralDays(daysWithoutContact)}`,
+      severity: 'warning',
+      points: 50 + Math.min(daysWithoutContact, 15),
+    })
+  }
+  if (lead.tasks.length === 0) {
+    reasons.push({ code: 'sem_proxima_tarefa', label: 'Sem próxima tarefa', severity: 'info', points: 45 })
+  }
+
+  return reasons
+}
+
+function toItemTask(task: ScoredTask, clock: Clock) {
+  return {
+    id: task.id,
+    title: task.title,
+    type: task.type,
+    priority: task.priority,
+    dueDate: task.dueDate,
+    description: task.description,
+    overdueDays: overdueDays(task.dueDate, clock),
+  }
+}
+
+function toItem(
+  base: Pick<MyDayItem, 'key' | 'kind' | 'daysWithoutContact' | 'lead' | 'tasks'>,
+  reasons: Reason[],
+  bonus: number,
+): MyDayItem {
+  const sorted = [...reasons].sort((a, b) => b.points - a.points)
+  const score = sorted[0].points + bonus
+
+  return {
+    ...base,
+    score,
+    band: bandFor(score),
+    reasons: sorted.map(({ code, label, severity }) => ({ code, label, severity })),
+  }
+}
+
+function toItemLead(lead: ScoredLead): NonNullable<MyDayItem['lead']> {
+  return {
+    id: lead.id,
+    name: lead.name,
+    phone: lead.phone,
+    phone2: lead.phone2,
+    email: lead.email,
+    urgency: lead.urgency,
+    interestValue: lead.interestValue?.toNumber() ?? null,
+    lastContactAt: lead.lastContactAt,
+    stage: lead.funnelStage,
+  }
+}
+
+export function buildMyDayItems(tasks: ScoredTask[], leads: OwnedLead[], taskLeads: ScoredLead[], now = new Date()) {
+  const clock = clockAt(now)
+  const items: MyDayItem[] = []
+
+  const tasksByLead = new Map<string, ScoredTask[]>()
+  for (const task of tasks) {
+    if (task.leadId) tasksByLead.set(task.leadId, [...(tasksByLead.get(task.leadId) ?? []), task])
+  }
+
+  // Lead de outro corretor entra só pela tarefa atribuída ao usuário
+  const ownedById = new Map(leads.map((lead) => [lead.id, lead]))
+  const candidates = new Map<string, ScoredLead>([...taskLeads, ...leads].map((lead) => [lead.id, lead]))
+
+  for (const lead of candidates.values()) {
+    const leadTasks = tasksByLead.get(lead.id) ?? []
+    const daysWithoutContact = calendarDaysSince(lead.lastContactAt ?? lead.createdAt, clock)
+    const owned = ownedById.get(lead.id)
+    const reasons = [...taskReasons(leadTasks, clock), ...(owned ? leadReasons(owned, daysWithoutContact, clock) : [])]
+    if (reasons.length === 0) continue
+
+    const bonus = (URGENCY_BONUS[lead.urgency] ?? 0) + (isAdvancedStage(lead) ? ADVANCED_STAGE_BONUS : 0)
+    const base = {
+      key: `lead:${lead.id}`,
+      kind: 'lead' as const,
+      daysWithoutContact,
+      lead: toItemLead(lead),
+      tasks: leadTasks.map((task) => toItemTask(task, clock)),
+    }
+    items.push(toItem(base, reasons, bonus))
+  }
+
+  for (const task of tasks) {
+    if (task.leadId) continue
+    const reasons = taskReasons([task], clock)
+    if (reasons.length === 0) continue
+
+    const base = {
+      key: `task:${task.id}`,
+      kind: 'task' as const,
+      daysWithoutContact: null,
+      lead: null,
+      tasks: [toItemTask(task, clock)],
+    }
+    items.push(toItem(base, reasons, 0))
+  }
+
+  return items.sort((a, b) => b.score - a.score || (b.lead?.interestValue ?? 0) - (a.lead?.interestValue ?? 0))
+}
+
+export function countItems(items: MyDayItem[]) {
+  const withReason = (code: ReasonCode) =>
+    items.filter((item) => item.reasons.some((reason) => reason.code === code)).length
+
+  return {
+    agora: items.filter((item) => item.band === 'agora').length,
+    hoje: items.filter((item) => item.band === 'hoje').length,
+    atencao: items.filter((item) => item.band === 'atencao').length,
+    total: items.length,
+    tarefaVencida: withReason('tarefa_vencida'),
+    tarefaHoje: withReason('tarefa_hoje'),
+    semContato: withReason('sem_contato'),
+    semProximaTarefa: withReason('sem_proxima_tarefa'),
+    urgenciaImediata: withReason('urgencia_imediata'),
+    primeiroContato: withReason('primeiro_contato'),
+  }
+}

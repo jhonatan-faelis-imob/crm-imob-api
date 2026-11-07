@@ -1,12 +1,20 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
 import { PrismaService } from '../../prisma/prisma.service'
+import { InteractionsService } from '../interactions/interactions.service'
 import { CreateTaskDto } from './dto/create-task.dto'
 import { CompleteTaskDto } from './dto/complete-task.dto'
 import { QueryTaskDto } from './dto/query-task.dto'
 
+const CONTACT_TASK_TYPES = ['ligacao', 'whatsapp', 'email', 'visita', 'reuniao']
+// Com texto, viram interação e somam em "Registrar atividades"
+const INTERACTION_TASK_TYPES = ['ligacao', 'whatsapp']
+
 @Injectable()
 export class TasksService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private interactions: InteractionsService,
+  ) {}
 
   async create(
     organizationId: string,
@@ -113,6 +121,9 @@ export class TasksService {
       },
     })
 
+    // Concluir de novo não pode contar o mesmo contato duas vezes
+    if (task.status === 'pendente') await this.registerContact(organizationId, userId, task, dto.completionNotes)
+
     // Criar próxima tarefa se solicitado
     const nextTask = dto.createNextTask && dto.nextTaskTitle && dto.nextTaskDueDate
       ? await this.prisma.task.create({
@@ -136,6 +147,26 @@ export class TasksService {
       : null
 
     return { completed, nextTask }
+  }
+
+  private async registerContact(
+    organizationId: string,
+    userId: string,
+    task: { leadId: string | null; type: string },
+    completionNotes?: string,
+  ) {
+    if (!task.leadId || !CONTACT_TASK_TYPES.includes(task.type)) return
+
+    const notes = completionNotes?.trim()
+    if (notes && INTERACTION_TASK_TYPES.includes(task.type)) {
+      await this.interactions.create(organizationId, userId, { leadId: task.leadId, type: task.type, notes })
+      return
+    }
+
+    await this.prisma.lead.updateMany({
+      where: { id: task.leadId, organizationId },
+      data: { lastContactAt: new Date() },
+    })
   }
 
   async cancel(organizationId: string, id: string) {

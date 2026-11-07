@@ -1,0 +1,128 @@
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
+import type { Prisma } from '@prisma/client'
+import { HIERARCHY } from '../../common/guards/roles.guard'
+import { businessDayBounds, todayInBusinessTimeZone } from '../../common/utils/date'
+import { normalizeStageName } from '../../common/utils/stage'
+import { PrismaService } from '../../prisma/prisma.service'
+import { CLOSED_STATUSES, DEFAULT_ITEMS, MAX_LEADS } from './my-day.config'
+import { buildMyDayItems, countItems } from './my-day.scoring'
+
+export interface MyDayUser {
+  id: string
+  organizationId: string
+  role: string
+  teamId: string | null
+}
+
+const LEAD_SELECT = {
+  id: true,
+  name: true,
+  phone: true,
+  phone2: true,
+  email: true,
+  urgency: true,
+  interestValue: true,
+  lastContactAt: true,
+  createdAt: true,
+  funnelStage: { select: { name: true, color: true } },
+} satisfies Prisma.LeadSelect
+
+@Injectable()
+export class MyDayService {
+  constructor(private prisma: PrismaService) {}
+
+  async getMyDay(requestingUser: MyDayUser, userId?: string, limit = DEFAULT_ITEMS) {
+    const viewingUser = await this.resolveViewingUser(requestingUser, userId)
+    const { items, summary } = await this.compute(requestingUser.organizationId, viewingUser.id)
+    return { viewingUser, summary, items: items.slice(0, limit) }
+  }
+
+  async getSummary(requestingUser: MyDayUser, userId?: string) {
+    const viewingUser = await this.resolveViewingUser(requestingUser, userId)
+    const { summary } = await this.compute(requestingUser.organizationId, viewingUser.id)
+    return summary
+  }
+
+  private async resolveViewingUser(requestingUser: MyDayUser, userId?: string) {
+    const targetId = userId ?? requestingUser.id
+    const isSelf = targetId === requestingUser.id
+
+    if (!isSelf && (HIERARCHY[requestingUser.role] ?? 0) < HIERARCHY.coordenador) {
+      throw new ForbiddenException('Acesso negado')
+    }
+
+    const target = await this.prisma.user.findFirst({
+      where: { id: targetId, organizationId: requestingUser.organizationId },
+      select: { id: true, name: true, role: true, teamId: true },
+    })
+    if (!target) throw new NotFoundException('Usuário não encontrado')
+
+    const isOutsideTeam = !requestingUser.teamId || target.teamId !== requestingUser.teamId
+    if (!isSelf && requestingUser.role === 'coordenador' && isOutsideTeam) {
+      throw new ForbiddenException('Acesso negado')
+    }
+
+    return target
+  }
+
+  private async compute(organizationId: string, userId: string) {
+    const { start, end } = businessDayBounds(todayInBusinessTimeZone())
+    const period = { gte: start, lte: end }
+
+    const stages = await this.prisma.funnelStage.findMany({
+      where: { organizationId },
+      select: { id: true, name: true },
+    })
+    const closedStageIds = stages
+      .filter((stage) => CLOSED_STATUSES.includes(normalizeStageName(stage.name)))
+      .map((stage) => stage.id)
+
+    // notIn sozinho descartaria os leads sem etapa, que o SQL trata como NULL
+    const openLead: Prisma.LeadWhereInput = {
+      active: true,
+      status: { notIn: CLOSED_STATUSES },
+      OR: [{ funnelStageId: null }, { funnelStageId: { notIn: closedStageIds } }],
+    }
+
+    const [tasks, leads, doneTasks, contacts] = await Promise.all([
+      this.prisma.task.findMany({
+        where: {
+          organizationId,
+          assignedTo: userId,
+          status: 'pendente',
+          OR: [{ leadId: null }, { lead: openLead }],
+        },
+        select: {
+          id: true,
+          leadId: true,
+          title: true,
+          type: true,
+          priority: true,
+          dueDate: true,
+          description: true,
+          lead: { select: LEAD_SELECT },
+        },
+        orderBy: { dueDate: 'asc' },
+      }),
+      this.prisma.lead.findMany({
+        where: { ...openLead, organizationId, ownerId: userId },
+        select: {
+          ...LEAD_SELECT,
+          tasks: { where: { status: 'pendente' }, select: { id: true, dueDate: true } },
+        },
+        // No limite de leads, ficam os que estão há mais tempo sem contato
+        orderBy: { lastContactAt: { sort: 'asc', nulls: 'first' } },
+        take: MAX_LEADS,
+      }),
+      this.prisma.task.count({
+        where: { organizationId, assignedTo: userId, status: 'concluida', completedAt: period },
+      }),
+      this.prisma.interaction.count({ where: { organizationId, userId, occurredAt: period } }),
+    ])
+
+    const taskLeads = tasks.flatMap((task) => (task.lead ? [task.lead] : []))
+    const items = buildMyDayItems(tasks, leads, taskLeads)
+
+    return { items, summary: { counts: countItems(items), doneToday: { tasks: doneTasks, contacts } } }
+  }
+}
