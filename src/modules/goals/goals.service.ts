@@ -16,6 +16,7 @@ import { PrismaService } from '../../prisma/prisma.service'
 import { ConversionRatesDto, CreateGoalDto } from './dto/create-goal.dto'
 import { UpdateGoalDto } from './dto/update-goal.dto'
 import { CreateDailyEntryDto } from './dto/create-daily-entry.dto'
+import { GetEntriesQueryDto } from './dto/get-entries-query.dto'
 import { computeGoalProgress, computeTypedProgress } from './goal-progress'
 
 type RequestingUser = { id: string; role: string; teamId: string | null }
@@ -39,6 +40,16 @@ function isAtLeast(role: string, minimum: string) {
 function goalScope(goal: Pick<Goal, 'userId' | 'teamId'>): GoalScope {
   if (goal.userId) return 'individual'
   return goal.teamId ? 'equipe' : 'organizacao'
+}
+
+// Editar e excluir seguem a mesma regra; canEditGoal no front espelha esta função
+function canManageGoal(
+  goal: Pick<Goal, 'userId' | 'teamId'> & { user: { teamId: string | null } | null },
+  user: RequestingUser,
+) {
+  if (isAtLeast(user.role, 'gerente') || goal.userId === user.id) return true
+  if (user.role !== 'coordenador' || !user.teamId) return false
+  return goal.teamId === user.teamId || goal.user?.teamId === user.teamId
 }
 
 function percent(current: number, target: number) {
@@ -122,7 +133,7 @@ export class GoalsService {
       where: { organizationId, active: true, ...this.visibilityWhere(requestingUser) },
       include: {
         team: { select: { id: true, name: true } },
-        user: { select: { id: true, name: true, avatarUrl: true } },
+        user: { select: { id: true, name: true, avatarUrl: true, teamId: true } },
         _count: { select: { dailyEntries: true } },
       },
       orderBy: { periodStart: 'desc' },
@@ -131,7 +142,7 @@ export class GoalsService {
 
   async findById(organizationId: string, id: string, requestingUser: RequestingUser) {
     const goal = await this.prisma.goal.findFirst({
-      where: { id, organizationId, ...this.visibilityWhere(requestingUser) },
+      where: { id, organizationId, active: true, ...this.visibilityWhere(requestingUser) },
       include: {
         team: { select: { id: true, name: true } },
         user: { select: { id: true, name: true, avatarUrl: true } },
@@ -144,7 +155,7 @@ export class GoalsService {
 
   async getSummary(organizationId: string, id: string, requestingUser: RequestingUser) {
     const goal = await this.prisma.goal.findFirst({
-      where: { id, organizationId, ...this.visibilityWhere(requestingUser) },
+      where: { id, organizationId, active: true, ...this.visibilityWhere(requestingUser) },
       include: {
         team: { select: { id: true, name: true } },
         user: { select: { id: true, name: true, avatarUrl: true } },
@@ -278,7 +289,7 @@ export class GoalsService {
     requestingUser: { id: string; role: string },
     dto: CreateDailyEntryDto,
   ) {
-    const goal = await this.prisma.goal.findFirst({ where: { id: goalId, organizationId } })
+    const goal = await this.prisma.goal.findFirst({ where: { id: goalId, organizationId, active: true } })
     if (!goal) throw new NotFoundException('Meta não encontrada')
     if (!goal.userId) throw new BadRequestException('Só meta individual aceita registro diário')
 
@@ -297,7 +308,7 @@ export class GoalsService {
     }
     // Fora do período o registro seria salvo, mas nunca somado no funil
     if (entryDate < goal.periodStart || entryDate > goal.periodEnd) {
-      throw new BadRequestException('A data está fora do período da meta')
+      throw new BadRequestException('Data fora do período da meta')
     }
 
     return this.prisma.goalDailyEntry.upsert({
@@ -307,24 +318,38 @@ export class GoalsService {
     })
   }
 
-  async getDailyEntries(organizationId: string, goalId: string, requestingUser: RequestingUser) {
+  async getDailyEntries(
+    organizationId: string,
+    goalId: string,
+    requestingUser: RequestingUser,
+    { from, to }: GetEntriesQueryDto,
+  ) {
     const goal = await this.prisma.goal.findFirst({
-      where: { id: goalId, organizationId, ...this.visibilityWhere(requestingUser) },
+      where: { id: goalId, organizationId, active: true, ...this.visibilityWhere(requestingUser) },
     })
     if (!goal) throw new NotFoundException('Meta não encontrada')
 
     return this.prisma.goalDailyEntry.findMany({
-      where: { goalId },
+      where: {
+        goalId,
+        userId: goal.userId ?? undefined,
+        date: { gte: from ? toDateOnly(from) : undefined, lte: to ? toDateOnly(to) : undefined },
+      },
+      select: {
+        date: true,
+        calls: true,
+        prospects: true,
+        qualifications: true,
+        simulations: true,
+        appointments: true,
+        closings: true,
+      },
       orderBy: { date: 'desc' },
     })
   }
 
   async updateProgress(organizationId: string, goalId: string) {
-    const goal = await this.prisma.goal.findFirstOrThrow({
-      where: { id: goalId, organizationId },
-    })
-
-    return this.recalculateGoal(goal)
+    return this.recalculateGoal(await this.findActiveGoal(organizationId, goalId))
   }
 
   async recalculateForSale(
@@ -362,14 +387,10 @@ export class GoalsService {
     dto: UpdateGoalDto,
     requestingUser: RequestingUser,
   ) {
-    const goal = await this.prisma.goal.findFirstOrThrow({ where: { id, organizationId } })
-
-    const canEdit =
-      isAtLeast(requestingUser.role, 'gerente') ||
-      (requestingUser.role === 'coordenador' && !!goal.teamId && goal.teamId === requestingUser.teamId) ||
-      goal.userId === requestingUser.id
-
-    if (!canEdit) throw new ForbiddenException('Sem permissão para editar esta meta')
+    const goal = await this.findActiveGoal(organizationId, id)
+    if (!canManageGoal(goal, requestingUser)) {
+      throw new ForbiddenException('Sem permissão para editar esta meta')
+    }
 
     const { scope: nextScope, userId, teamId, periodStart, periodEnd, conversionRates, ...data } = dto
     const scope = nextScope ?? goalScope(goal)
@@ -392,6 +413,15 @@ export class GoalsService {
     })
 
     return this.recalculateGoal(updated)
+  }
+
+  private async findActiveGoal(organizationId: string, id: string) {
+    const goal = await this.prisma.goal.findFirst({
+      where: { id, organizationId, active: true },
+      include: { user: { select: { teamId: true } } },
+    })
+    if (!goal) throw new NotFoundException('Meta não encontrada')
+    return goal
   }
 
   private visibilityWhere(user: RequestingUser): Prisma.GoalWhereInput {
@@ -455,8 +485,11 @@ export class GoalsService {
     return { userId, teamId: null }
   }
 
-  async deactivate(organizationId: string, id: string) {
-    await this.prisma.goal.findFirstOrThrow({ where: { id, organizationId } })
+  async deactivate(organizationId: string, id: string, requestingUser: RequestingUser) {
+    const goal = await this.findActiveGoal(organizationId, id)
+    if (!canManageGoal(goal, requestingUser)) {
+      throw new ForbiddenException('Sem permissão para excluir esta meta')
+    }
     return this.prisma.goal.update({ where: { id }, data: { active: false } })
   }
 }

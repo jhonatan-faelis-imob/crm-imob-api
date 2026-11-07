@@ -3,8 +3,8 @@ import { GoalsService } from './goals.service'
 import { CreateGoalDto } from './dto/create-goal.dto'
 import { UpdateGoalDto } from './dto/update-goal.dto'
 import { CreateDailyEntryDto } from './dto/create-daily-entry.dto'
+import { GetEntriesQueryDto } from './dto/get-entries-query.dto'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
-import { Roles } from '../../common/decorators/roles.decorator'
 
 @Controller('goals')
 export class GoalsController {
@@ -62,8 +62,9 @@ export class GoalsController {
   getEntries(
     @CurrentUser() user: { id: string; organizationId: string; role: string; teamId: string | null },
     @Param('id') id: string,
+    @Query() query: GetEntriesQueryDto,
   ) {
-    return this.service.getDailyEntries(user.organizationId, id, user)
+    return this.service.getDailyEntries(user.organizationId, id, user, query)
   }
 
   @Patch(':id')
@@ -84,11 +85,10 @@ export class GoalsController {
   }
 
   @Delete(':id')
-  @Roles('gerente')
   deactivate(
-    @CurrentUser() user: { organizationId: string },
+    @CurrentUser() user: { id: string; organizationId: string; role: string; teamId: string | null },
     @Param('id') id: string,
   ) {
-    return this.service.deactivate(user.organizationId, id)
+    return this.service.deactivate(user.organizationId, id, user)
   }
 }
