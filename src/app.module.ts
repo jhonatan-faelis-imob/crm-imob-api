@@ -15,6 +15,7 @@ import { SalesModule } from './modules/sales/sales.module'
 import { GoalsModule } from './modules/goals/goals.module'
 import { ReportsModule } from './modules/reports/reports.module'
 import { AiModule } from './modules/ai/ai.module'
+import { MessageTemplatesModule } from './modules/message-templates/message-templates.module'
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard'
 import { RolesGuard } from './common/guards/roles.guard'
 import { TenantInterceptor } from './common/interceptors/tenant.interceptor'
@@ -37,6 +38,7 @@ import configuration from './config/configuration'
     GoalsModule,
     ReportsModule,
     AiModule,
+    MessageTemplatesModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

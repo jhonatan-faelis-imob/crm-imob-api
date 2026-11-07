@@ -130,6 +130,18 @@ export class LeadsService {
     }
   }
 
+  assertCanView(
+    lead: { ownerId: string | null; teamId: string | null },
+    requestingUser: { role: string; id: string; teamId: string | null },
+  ) {
+    if (requestingUser.role === 'corretor' && lead.ownerId !== requestingUser.id) {
+      throw new ForbiddenException('Acesso negado')
+    }
+    if (requestingUser.role === 'coordenador' && lead.teamId !== requestingUser.teamId) {
+      throw new ForbiddenException('Acesso negado')
+    }
+  }
+
   async findById(organizationId: string, id: string, requestingUser: { role: string; id: string; teamId: string | null }) {
     const lead = await this.prisma.lead.findFirst({
       where: { id, organizationId, active: true },
@@ -156,13 +168,7 @@ export class LeadsService {
 
     if (!lead) throw new NotFoundException('Lead não encontrado')
 
-    // Verificar visibilidade
-    if (requestingUser.role === 'corretor' && lead.ownerId !== requestingUser.id) {
-      throw new ForbiddenException('Acesso negado')
-    }
-    if (requestingUser.role === 'coordenador' && lead.teamId !== requestingUser.teamId) {
-      throw new ForbiddenException('Acesso negado')
-    }
+    this.assertCanView(lead, requestingUser)
 
     // Buscar sugestões de imóveis por renda
     const incomeSuggestions = lead.income
