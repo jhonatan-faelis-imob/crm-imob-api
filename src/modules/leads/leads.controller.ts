@@ -43,11 +43,11 @@ export class LeadsController {
 
   @Patch(':id')
   update(
-    @CurrentUser() user: { organizationId: string },
+    @CurrentUser() user: { id: string; organizationId: string },
     @Param('id') id: string,
     @Body() dto: Partial<CreateLeadDto>,
   ) {
-    return this.service.update(user.organizationId, id, dto)
+    return this.service.update(user.organizationId, id, dto, user.id)
   }
 
   @Patch(':id/stage')

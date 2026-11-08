@@ -20,6 +20,7 @@ async function reset() {
   await prisma.property.deleteMany()
   await prisma.leadTag.deleteMany()
   await prisma.messageTemplate.deleteMany()
+  await prisma.stageCadenceStep.deleteMany()
   await prisma.funnelStage.deleteMany()
   await prisma.user.deleteMany()
   await prisma.team.deleteMany()

@@ -17,6 +17,7 @@ import { ReportsModule } from './modules/reports/reports.module'
 import { AiModule } from './modules/ai/ai.module'
 import { MessageTemplatesModule } from './modules/message-templates/message-templates.module'
 import { MyDayModule } from './modules/my-day/my-day.module'
+import { CadencesModule } from './modules/cadences/cadences.module'
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard'
 import { RolesGuard } from './common/guards/roles.guard'
 import { TenantInterceptor } from './common/interceptors/tenant.interceptor'
@@ -41,6 +42,7 @@ import configuration from './config/configuration'
     AiModule,
     MessageTemplatesModule,
     MyDayModule,
+    CadencesModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

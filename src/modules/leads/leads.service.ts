@@ -1,10 +1,23 @@
 import { Injectable, NotFoundException, ForbiddenException, ConflictException } from '@nestjs/common'
+import { Prisma } from '@prisma/client'
 import { normalizeStageName } from '../../common/utils/stage'
 import { PrismaService } from '../../prisma/prisma.service'
+import { CadencesService, type CadenceResult } from '../cadences/cadences.service'
 import { CreateLeadDto } from './dto/create-lead.dto'
 import { QueryLeadDto } from './dto/query-lead.dto'
 
 const TERMINAL_STATUSES = ['ganho', 'perdido']
+
+// Lead, histórico e cadência numa transação só; folga para a latência do banco remoto
+const STAGE_TRANSACTION = { timeout: 15_000 }
+
+const LEAD_INCLUDE = {
+  owner: { select: { id: true, name: true, avatarUrl: true } },
+  funnelStage: true,
+  tags: { include: { tag: true } },
+} satisfies Prisma.LeadInclude
+
+type StageLead = { id: string; name: string; ownerId: string | null; status: string; funnelStageId: string | null }
 
 function statusForStage(stageName: string, currentStatus: string) {
   const name = normalizeStageName(stageName)
@@ -14,7 +27,10 @@ function statusForStage(stageName: string, currentStatus: string) {
 
 @Injectable()
 export class LeadsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private cadences: CadencesService,
+  ) {}
 
   async create(
     organizationId: string,
@@ -46,28 +62,35 @@ export class LeadsService {
     const ownerId = dto.ownerId ?? requestingUser.id
     const teamId = dto.teamId ?? requestingUser.teamId ?? undefined
 
-    const lead = await this.prisma.lead.create({
-      data: { ...dto, organizationId, ownerId, teamId },
-      include: {
-        owner: { select: { id: true, name: true, avatarUrl: true } },
-        funnelStage: true,
-        tags: { include: { tag: true } },
-      },
-    })
+    if (dto.funnelStageId) await this.cadences.ensureDefaults(organizationId)
 
-    if (lead.funnelStage) {
-      await this.prisma.leadStageHistory.create({
-        data: {
-          organizationId,
-          leadId: lead.id,
-          toStageId: lead.funnelStage.id,
-          toStageName: normalizeStageName(lead.funnelStage.name),
-          changedBy: requestingUser.id,
-        },
+    return this.prisma.$transaction(async (tx) => {
+      const lead = await tx.lead.create({
+        data: { ...dto, organizationId, ownerId, teamId },
+        include: LEAD_INCLUDE,
       })
-    }
 
-    return lead
+      if (lead.funnelStage) {
+        await tx.leadStageHistory.create({
+          data: {
+            organizationId,
+            leadId: lead.id,
+            toStageId: lead.funnelStage.id,
+            toStageName: normalizeStageName(lead.funnelStage.name),
+            changedBy: requestingUser.id,
+          },
+        })
+        await this.cadences.applyOnStageChange(tx, {
+          organizationId,
+          lead,
+          fromStageId: null,
+          toStageId: lead.funnelStage.id,
+          actorId: requestingUser.id,
+        })
+      }
+
+      return lead
+    }, STAGE_TRANSACTION)
   }
 
   async findAll(
@@ -187,17 +210,23 @@ export class LeadsService {
     return { ...lead, incomeSuggestions }
   }
 
-  async update(organizationId: string, id: string, dto: Partial<CreateLeadDto>) {
-    await this.prisma.lead.findFirstOrThrow({ where: { id, organizationId } })
-    return this.prisma.lead.update({
-      where: { id },
-      data: dto,
-      include: {
-        owner: { select: { id: true, name: true, avatarUrl: true } },
-        funnelStage: true,
-        tags: { include: { tag: true } },
-      },
-    })
+  async update(organizationId: string, id: string, dto: Partial<CreateLeadDto>, changedBy: string) {
+    const lead = await this.prisma.lead.findFirstOrThrow({ where: { id, organizationId } })
+    const { funnelStageId, ...rest } = dto
+
+    if (!funnelStageId || funnelStageId === lead.funnelStageId) {
+      return this.prisma.lead.update({ where: { id }, data: dto, include: LEAD_INCLUDE })
+    }
+
+    // Trocar a etapa por aqui segue o mesmo caminho de PATCH /leads/:id/stage
+    const stage = await this.findStage(organizationId, funnelStageId)
+    await this.cadences.ensureDefaults(organizationId)
+
+    return this.prisma.$transaction(async (tx) => {
+      const current = await tx.lead.update({ where: { id }, data: rest })
+      await this.moveToStage(tx, organizationId, current, stage, changedBy)
+      return tx.lead.findUniqueOrThrow({ where: { id }, include: LEAD_INCLUDE })
+    }, STAGE_TRANSACTION)
   }
 
   async getActiveSale(organizationId: string, id: string) {
@@ -208,40 +237,29 @@ export class LeadsService {
     })
   }
 
+  // Devolve o lead como antes, mais `cadence` (acréscimo: o formato antigo continua valendo)
   async updateStage(organizationId: string, id: string, funnelStageId: string, changedBy: string) {
     const lead = await this.prisma.lead.findFirstOrThrow({ where: { id, organizationId } })
-    const stage = await this.prisma.funnelStage.findFirst({ where: { id: funnelStageId, organizationId } })
-    if (!stage) throw new NotFoundException('Etapa não encontrada')
+    const stage = await this.findStage(organizationId, funnelStageId)
+    await this.cadences.ensureDefaults(organizationId)
 
-    const [updated] = await this.prisma.$transaction([
-      this.prisma.lead.update({
-        where: { id },
-        data: { funnelStageId, status: statusForStage(stage.name, lead.status), updatedAt: new Date() },
-      }),
-      this.prisma.leadStageHistory.create({
-        data: {
-          organizationId,
-          leadId: id,
-          fromStageId: lead.funnelStageId,
-          toStageId: funnelStageId,
-          toStageName: normalizeStageName(stage.name),
-          changedBy,
-        },
-      }),
-    ])
+    const { updated, cadence } = await this.prisma.$transaction(
+      (tx) => this.moveToStage(tx, organizationId, lead, stage, changedBy),
+      STAGE_TRANSACTION,
+    )
 
-    return updated
+    return { ...updated, cadence }
   }
 
   async markAsLost(organizationId: string, id: string, lostReason: string, changedBy: string) {
     const lead = await this.prisma.lead.findFirstOrThrow({ where: { id, organizationId } })
 
-    const [updated] = await this.prisma.$transaction([
-      this.prisma.lead.update({
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.lead.update({
         where: { id },
         data: { status: 'perdido', lostReason, funnelStageId: null },
-      }),
-      this.prisma.leadStageHistory.create({
+      })
+      await tx.leadStageHistory.create({
         data: {
           organizationId,
           leadId: id,
@@ -249,10 +267,54 @@ export class LeadsService {
           toStageName: 'perdido',
           changedBy,
         },
-      }),
-    ])
+      })
+      // Sem etapa de destino: só cancela as automáticas pendentes, não cria nenhuma
+      await this.cadences.applyOnStageChange(tx, {
+        organizationId,
+        lead,
+        fromStageId: lead.funnelStageId,
+        toStageId: null,
+        actorId: changedBy,
+      })
+      return updated
+    }, STAGE_TRANSACTION)
+  }
 
-    return updated
+  private async findStage(organizationId: string, funnelStageId: string) {
+    const stage = await this.prisma.funnelStage.findFirst({ where: { id: funnelStageId, organizationId } })
+    if (!stage) throw new NotFoundException('Etapa não encontrada')
+    return stage
+  }
+
+  private async moveToStage(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+    lead: StageLead,
+    stage: { id: string; name: string },
+    changedBy: string,
+  ) {
+    const updated = await tx.lead.update({
+      where: { id: lead.id },
+      data: { funnelStageId: stage.id, status: statusForStage(stage.name, lead.status), updatedAt: new Date() },
+    })
+    await tx.leadStageHistory.create({
+      data: {
+        organizationId,
+        leadId: lead.id,
+        fromStageId: lead.funnelStageId,
+        toStageId: stage.id,
+        toStageName: normalizeStageName(stage.name),
+        changedBy,
+      },
+    })
+    const cadence: CadenceResult = await this.cadences.applyOnStageChange(tx, {
+      organizationId,
+      lead: updated,
+      fromStageId: lead.funnelStageId,
+      toStageId: stage.id,
+      actorId: changedBy,
+    })
+    return { updated, cadence }
   }
 
   async archive(organizationId: string, id: string) {
