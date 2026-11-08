@@ -33,6 +33,7 @@ model Organization {
   cadenceSteps     StageCadenceStep[]
   documentRequirements DocumentRequirement[]
   leadChecklistItems   LeadChecklistItem[]
+  propertyShares       PropertyShare[]
 
   @@map("organizations")
 }
@@ -173,6 +174,7 @@ model Lead {
   stageHistory LeadStageHistory[]
   checklistItems LeadChecklistItem[]
   propertiesForSale Property[] @relation("PropertySeller")
+  propertyShares    PropertyShare[]
 
   @@map("leads")
   @@index([organizationId])
@@ -280,6 +282,7 @@ model Property {
   sellerLead   Lead?          @relation("PropertySeller", fields: [sellerLeadId], references: [id], onDelete: SetNull)
   leads        LeadProperty[]
   sales        Sale[]
+  shares       PropertyShare[]
 
   @@map("properties")
   @@index([organizationId])
@@ -615,4 +618,31 @@ model LeadChecklistItem {
   @@map("lead_checklist_items")
   @@index([organizationId, leadId])
   @@index([leadId, status])
+}
+
+// Link público de apresentação de um imóvel (/i/:token). createdBy sem FK: o corretor do cartão
+model PropertyShare {
+  id             String    @id @default(uuid())
+  organizationId String    @map("organization_id")
+  propertyId     String    @map("property_id")
+  leadId         String?   @map("lead_id")
+  createdBy      String?   @map("created_by")
+  token          String    @unique
+  showPrice      Boolean   @default(true) @map("show_price")
+  expiresAt      DateTime? @map("expires_at")
+  revokedAt      DateTime? @map("revoked_at")
+  sentAt         DateTime? @map("sent_at")
+  viewCount      Int       @default(0) @map("view_count")
+  firstViewedAt  DateTime? @map("first_viewed_at")
+  lastViewedAt   DateTime? @map("last_viewed_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  property     Property     @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  lead         Lead?        @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
+  @@map("property_shares")
+  @@index([propertyId])
+  @@index([leadId])
+  @@index([organizationId, createdBy])
 }

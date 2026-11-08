@@ -20,6 +20,7 @@ import { MyDayModule } from './modules/my-day/my-day.module'
 import { CadencesModule } from './modules/cadences/cadences.module'
 import { DocumentsModule } from './modules/documents/documents.module'
 import { SimulationsModule } from './modules/simulations/simulations.module'
+import { PropertySharesModule } from './modules/property-shares/property-shares.module'
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard'
 import { RolesGuard } from './common/guards/roles.guard'
 import { TenantInterceptor } from './common/interceptors/tenant.interceptor'
@@ -47,6 +48,7 @@ import configuration from './config/configuration'
     CadencesModule,
     DocumentsModule,
     SimulationsModule,
+    PropertySharesModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },
