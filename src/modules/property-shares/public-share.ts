@@ -39,6 +39,7 @@ type NumericLike = number | string | { toString(): string } | null | undefined
 /** Só os campos que a carga pública pode ler. Qualquer outro campo do banco nunca chega aqui */
 export interface PublicShareProperty {
   kind: string
+  code: string | null
   title: string
   description: string | null
   propertyType: string | null
@@ -84,6 +85,7 @@ export type PublicShareStatus = 'disponivel' | 'reservado' | 'vendido' | 'indisp
 export interface PublicShare {
   status: PublicShareStatus
   kind: 'revenda' | 'empreendimento'
+  code: string | null
   title: string
   typeLabel: string | null
   price: number | null
@@ -208,6 +210,7 @@ export function buildPublicShare(input: {
   return {
     status: publicStatus(property),
     kind: isDevelopment ? 'empreendimento' : 'revenda',
+    code: property.code,
     title: property.title,
     typeLabel: isDevelopment ? 'Empreendimento' : (findPropertyType(property.propertyType)?.label ?? null),
     price: showPrice ? toNumber(isDevelopment ? property.startingPrice : property.price) : null,
@@ -252,6 +255,7 @@ export function buildPublicShare(input: {
 /** Colunas lidas do banco para a carga pública (select explícito, sem complemento, CEP etc.) */
 export const PUBLIC_PROPERTY_SELECT = {
   kind: true,
+  code: true,
   title: true,
   description: true,
   propertyType: true,

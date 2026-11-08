@@ -21,6 +21,7 @@ import {
 const PROPERTY_SELECT = {
   id: true,
   kind: true,
+  code: true,
   title: true,
   city: true,
   neighborhood: true,
@@ -145,6 +146,7 @@ export class SimulationsService {
       return {
         id: row.id,
         kind: row.kind,
+        code: row.code,
         title: row.title,
         city: row.city,
         neighborhood: row.neighborhood,

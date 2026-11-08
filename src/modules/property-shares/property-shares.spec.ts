@@ -38,6 +38,7 @@ const FORBIDDEN_KEYS = [
 function publicProperty(overrides: Partial<PublicShareProperty> = {}): PublicShareProperty {
   return {
     kind: 'revenda',
+    code: 'CS-01',
     title: 'Apartamento no Centro',
     description: 'Apartamento amplo e bem iluminado, perto de tudo.',
     propertyType: 'apartamento',
@@ -238,7 +239,37 @@ describe('token', () => {
   })
 })
 
+const ALLOWED_TOP_LEVEL_KEYS = [
+  'broker',
+  'code',
+  'conditions',
+  'constructionStatusLabel',
+  'description',
+  'expiresAt',
+  'features',
+  'kind',
+  'location',
+  'maxPrice',
+  'organization',
+  'photos',
+  'price',
+  'priceLabel',
+  'specs',
+  'status',
+  'title',
+  'totalUnits',
+  'typeLabel',
+]
+
 describe('carga pública', () => {
+  it('tem exatamente as chaves permitidas (inclui o código)', async () => {
+    const { service } = setup()
+    const { token } = await service.create(user, { propertyId: PROPERTY_ID })
+    const payload = (await service.getPublic(token)) as PublicShare
+    expect(Object.keys(payload).sort()).toEqual(ALLOWED_TOP_LEVEL_KEYS)
+    expect(payload.code).toBe('CS-01')
+  })
+
   it('não contém nenhuma chave proibida nem dado interno (pela API)', async () => {
     const { service } = setup()
     const { token } = await service.create(user, { propertyId: PROPERTY_ID })

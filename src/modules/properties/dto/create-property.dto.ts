@@ -30,6 +30,13 @@ export class CreatePropertyDto {
   @IsIn(['empreendimento', 'revenda'])
   kind: string
 
+  /** Código do imóvel. Vazio ou ausente: automático no cadastro, mantém o atual na edição.
+   *  O formato é validado e normalizado no service (normalizePropertyCode) */
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  code?: string | null
+
   @Trim()
   @IsString()
   @IsNotEmpty()

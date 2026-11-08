@@ -20,6 +20,12 @@ export class PropertiesController {
 
   // Rotas fixas antes das rotas com :id
 
+  /** Só uma dica para o placeholder do formulário: não reserva o número */
+  @Get('next-code')
+  getNextCode(@CurrentUser() user: { organizationId: string }) {
+    return this.service.nextCodeHint(user.organizationId)
+  }
+
   @Get('portal-config')
   getPortalConfig() {
     return portalConfig()

@@ -12,7 +12,7 @@ const ORG = 'org-1'
 const LEAD_ID = '6f1c3c1e-4b8a-4f43-9d55-2f6b7a1c9e10'
 
 function setup({ leadInOrg = true, current = {} }: { leadInOrg?: boolean; current?: object } = {}) {
-  const prisma = {
+  const base = {
     lead: {
       findFirst: jest.fn(({ where }: { where: { organizationId: string } }) =>
         Promise.resolve(leadInOrg && where.organizationId === ORG ? { id: LEAD_ID } : null),
@@ -21,11 +21,17 @@ function setup({ leadInOrg = true, current = {} }: { leadInOrg?: boolean; curren
     property: {
       create: jest.fn(({ data }: { data: object }) => Promise.resolve({ id: 'p1', ...data })),
       update: jest.fn(({ data }: { data: object }) => Promise.resolve({ id: 'p1', ...data })),
-      findFirst: jest.fn(() =>
-        Promise.resolve({ id: 'p1', organizationId: ORG, kind: 'revenda', title: 'Casa', city: 'Santos', ...current }),
+      // Busca pelo id devolve o imóvel atual; busca por código (gerador) não acha ninguém
+      findFirst: jest.fn(({ where }: { where: { id?: string } }) =>
+        Promise.resolve(
+          where.id ? { id: 'p1', organizationId: ORG, kind: 'revenda', title: 'Casa', city: 'Santos', code: null, ...current } : null,
+        ),
       ),
     },
+    organization: { update: jest.fn(() => Promise.resolve({ propertyCodeSeq: 1 })) },
   }
+  // A transação roda o callback com o próprio Prisma falso
+  const prisma = { ...base, $transaction: jest.fn((fn: (tx: typeof base) => Promise<unknown>) => fn(base)) }
   return { prisma, service: new PropertiesService(prisma as unknown as PrismaService) }
 }
 
