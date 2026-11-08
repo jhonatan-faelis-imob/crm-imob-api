@@ -31,6 +31,8 @@ model Organization {
   messageTemplates MessageTemplate[]
   dailyActivities  DailyActivity[]
   cadenceSteps     StageCadenceStep[]
+  documentRequirements DocumentRequirement[]
+  leadChecklistItems   LeadChecklistItem[]
 
   @@map("organizations")
 }
@@ -169,6 +171,7 @@ model Lead {
   sales        Sale[]
   tags         LeadTagRelation[]
   stageHistory LeadStageHistory[]
+  checklistItems LeadChecklistItem[]
 
   @@map("leads")
   @@index([organizationId])
@@ -536,4 +539,55 @@ model StageCadenceStep {
 
   @@map("stage_cadence_steps")
   @@index([organizationId, funnelStageId])
+}
+
+// Lista padrão de documentos da imobiliária. Cada lead recebe uma cópia (LeadChecklistItem)
+model DocumentRequirement {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  name           String   @db.VarChar(120)
+  description    String?
+  category       String   @default("pessoal")
+  holder         String   @default("titular")
+  required       Boolean  @default(true)
+  appliesWhen    String   @default("always") @map("applies_when")
+  orderIndex     Int      @default(0) @map("order_index")
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("document_requirements")
+  @@index([organizationId, active])
+}
+
+// Checklist do lead. name e description são cópia do padrão: renomear o padrão não mexe nos leads.
+// requirementId e updatedBy sem chave estrangeira; requirementId nulo = item avulso
+model LeadChecklistItem {
+  id             String    @id @default(uuid())
+  organizationId String    @map("organization_id")
+  leadId         String    @map("lead_id")
+  requirementId  String?   @map("requirement_id")
+  name           String
+  description    String?
+  category       String
+  holder         String
+  required       Boolean
+  status         String    @default("pendente")
+  notes          String?
+  receivedAt     DateTime? @map("received_at")
+  approvedAt     DateTime? @map("approved_at")
+  updatedBy      String?   @map("updated_by")
+  orderIndex     Int       @default(0) @map("order_index")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lead         Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@unique([leadId, requirementId, holder])
+  @@map("lead_checklist_items")
+  @@index([organizationId, leadId])
+  @@index([leadId, status])
 }

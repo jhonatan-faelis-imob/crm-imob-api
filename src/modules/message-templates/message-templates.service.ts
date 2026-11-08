@@ -1,6 +1,7 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
 import { HIERARCHY } from '../../common/guards/roles.guard'
 import { PrismaService } from '../../prisma/prisma.service'
+import { DocumentsService } from '../documents/documents.service'
 import { InteractionsService } from '../interactions/interactions.service'
 import { LeadsService } from '../leads/leads.service'
 import { DEFAULT_TEMPLATES } from './default-templates'
@@ -12,6 +13,7 @@ import { extractVariables, greeting, renderTemplate, truncateText } from './rend
 type RequestingUser = { id: string; role: string; teamId: string | null }
 
 const LOG_TEXT_LIMIT = 300
+const DOCUMENTS_VARIABLE = /\{\{\s*documentos_pendentes\s*\}\}/
 
 function isAtLeast(role: string, minimum: string) {
   return (HIERARCHY[role] ?? 0) >= HIERARCHY[minimum]
@@ -23,6 +25,7 @@ export class MessageTemplatesService {
     private prisma: PrismaService,
     private interactions: InteractionsService,
     private leads: LeadsService,
+    private documents: DocumentsService,
   ) {}
 
   async findAll(organizationId: string, userId: string, type?: string) {
@@ -114,6 +117,10 @@ export class MessageTemplatesService {
         select: { name: true, phone: true, organization: { select: { name: true } } },
       }),
     ])
+    // Só quando o texto pede: senão qualquer mensagem criaria o checklist do lead
+    const pendingDocuments = DOCUMENTS_VARIABLE.test(content)
+      ? await this.documents.pendingDocumentsForMessage(organizationId, leadId)
+      : undefined
 
     return renderTemplate(content, {
       nome: lead.name,
@@ -123,6 +130,8 @@ export class MessageTemplatesService {
       telefone_corretor: sender?.phone,
       imobiliaria: sender?.organization.name,
       saudacao: greeting(),
+      // Vazio entra em missing, como {{empreendimento}} sem imóvel
+      documentos_pendentes: pendingDocuments,
     })
   }
 

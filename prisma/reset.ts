@@ -21,6 +21,8 @@ async function reset() {
   await prisma.leadTag.deleteMany()
   await prisma.messageTemplate.deleteMany()
   await prisma.stageCadenceStep.deleteMany()
+  await prisma.leadChecklistItem.deleteMany()
+  await prisma.documentRequirement.deleteMany()
   await prisma.funnelStage.deleteMany()
   await prisma.user.deleteMany()
   await prisma.team.deleteMany()

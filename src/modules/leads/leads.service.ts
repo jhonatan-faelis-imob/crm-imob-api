@@ -4,6 +4,7 @@ import { assertCanViewLead } from '../../common/utils/lead-visibility'
 import { normalizeStageName } from '../../common/utils/stage'
 import { PrismaService } from '../../prisma/prisma.service'
 import { CadencesService, type CadenceResult } from '../cadences/cadences.service'
+import { docsByLead, type LeadDocsSummary } from '../documents/checklist-rules'
 import { CreateLeadDto } from './dto/create-lead.dto'
 import { QueryLeadDto } from './dto/query-lead.dto'
 
@@ -19,6 +20,8 @@ const LEAD_INCLUDE = {
 } satisfies Prisma.LeadInclude
 
 type StageLead = { id: string; name: string; ownerId: string | null; status: string; funnelStageId: string | null }
+
+export type LeadAccessUser = { organizationId: string; id: string; role: string; teamId: string | null }
 
 function statusForStage(stageName: string, currentStatus: string) {
   const name = normalizeStageName(stageName)
@@ -143,8 +146,11 @@ export class LeadsService {
       this.prisma.lead.count({ where }),
     ])
 
+    const docs = await this.docsSummary(organizationId, data.map((lead) => lead.id))
+
     return {
-      data,
+      // docs é acréscimo: null quando o lead ainda não tem checklist
+      data: data.map((lead) => ({ ...lead, docs: docs.get(lead.id) ?? null })),
       meta: {
         total,
         page,
@@ -152,6 +158,36 @@ export class LeadsService {
         totalPages: Math.ceil(total / limit),
       },
     }
+  }
+
+  // Uma consulta para a página inteira, agrupando por lead, status e obrigatoriedade
+  private async docsSummary(organizationId: string, leadIds: string[]) {
+    if (!leadIds.length) return new Map<string, LeadDocsSummary>()
+    const groups = await this.prisma.leadChecklistItem.groupBy({
+      by: ['leadId', 'status', 'required'],
+      where: { organizationId, leadId: { in: leadIds } },
+      _count: { _all: true },
+    })
+    return docsByLead(groups)
+  }
+
+  // Carrega o lead da organização do usuário e aplica a mesma regra de visibilidade do detalhe
+  async assertLeadAccess(user: LeadAccessUser, leadId: string) {
+    const lead = await this.prisma.lead.findFirst({
+      where: { id: leadId, organizationId: user.organizationId, active: true },
+      select: {
+        id: true,
+        name: true,
+        ownerId: true,
+        teamId: true,
+        spouseName: true,
+        maritalStatus: true,
+        fgtsValue: true,
+      },
+    })
+    if (!lead) throw new NotFoundException('Lead não encontrado')
+    this.assertCanView(lead, user)
+    return lead
   }
 
   assertCanView(
@@ -203,7 +239,9 @@ export class LeadsService {
         })
       : []
 
-    return { ...lead, incomeSuggestions }
+    const docs = await this.docsSummary(organizationId, [lead.id])
+
+    return { ...lead, incomeSuggestions, docs: docs.get(lead.id) ?? null }
   }
 
   async update(organizationId: string, id: string, dto: Partial<CreateLeadDto>, changedBy: string) {
