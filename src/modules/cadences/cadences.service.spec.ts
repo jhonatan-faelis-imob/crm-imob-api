@@ -103,3 +103,73 @@ describe('CadencesService.applyOnStageChange', () => {
     })
   })
 })
+
+describe('CadencesService.applyToExistingLeads', () => {
+  function fakePrisma(leadCount: number, pending: { leadId: string; cadenceStepId: string }[] = []) {
+    const leads = Array.from({ length: leadCount }, (_, index) => ({ id: `l${index}`, name: `Lead ${index}`, ownerId: 'b1' }))
+    const db = {
+      funnelStage: { findFirst: jest.fn().mockResolvedValue({ id: 'st' }) },
+      stageCadenceStep: { findMany: jest.fn().mockResolvedValue([step('s1'), step('s2')]) },
+      lead: { findMany: jest.fn().mockResolvedValue(leads) },
+      task: {
+        findMany: jest.fn().mockResolvedValue(pending),
+        createMany: jest.fn(({ data }: { data: unknown[] }) => Promise.resolve({ count: data.length })),
+      },
+      $transaction: jest.fn((callback: (tx: unknown) => Promise<unknown>) => callback(db)),
+    }
+    return db
+  }
+
+  it('previews without writing and skips steps already pending', async () => {
+    const db = fakePrisma(2, [{ leadId: 'l0', cadenceStepId: 's1' }, { leadId: 'l0', cadenceStepId: 's2' }])
+    const result = await new CadencesService(db as unknown as PrismaService).applyToExistingLeads('org', 'st', true, 'u1')
+    expect(result).toEqual({ leads: 1, tasksToCreate: 2 })
+    expect(db.task.createMany).not.toHaveBeenCalled()
+    expect(db.lead.findMany.mock.calls[0][0].where).toMatchObject({ active: true, ownerId: { not: null } })
+  })
+
+  it('writes inside a transaction when confirmed', async () => {
+    const db = fakePrisma(3)
+    const result = await new CadencesService(db as unknown as PrismaService).applyToExistingLeads('org', 'st', false, 'u1')
+    expect(db.$transaction).toHaveBeenCalled()
+    expect(result).toEqual({ leads: 3, tasksToCreate: 6, created: 6 })
+  })
+
+  it('refuses more than 300 tasks at once', async () => {
+    const db = fakePrisma(151)
+    await expect(
+      new CadencesService(db as unknown as PrismaService).applyToExistingLeads('org', 'st', true, 'u1'),
+    ).rejects.toThrow('Muitas tarefas de uma vez. Aplique por partes.')
+  })
+})
+
+describe('CadencesService.reorderSteps', () => {
+  function fakePrisma() {
+    return {
+      funnelStage: { findFirst: jest.fn().mockResolvedValue({ id: 'st' }) },
+      stageCadenceStep: {
+        findMany: jest.fn().mockResolvedValue([{ id: 'a' }, { id: 'b' }]),
+        update: jest.fn().mockReturnValue('op'),
+      },
+      $transaction: jest.fn().mockResolvedValue([]),
+    }
+  }
+
+  it('rejects ids from another stage, duplicates or missing ones', async () => {
+    const db = fakePrisma()
+    const service = new CadencesService(db as unknown as PrismaService)
+    for (const orderedIds of [['a', 'x'], ['a', 'a'], ['a']]) {
+      await expect(service.reorderSteps('org', { stageId: 'st', orderedIds })).rejects.toThrow('exatamente os passos')
+    }
+    expect(db.$transaction).not.toHaveBeenCalled()
+  })
+
+  it('saves the new order index', async () => {
+    const db = fakePrisma()
+    await new CadencesService(db as unknown as PrismaService).reorderSteps('org', { stageId: 'st', orderedIds: ['b', 'a'] })
+    expect(db.stageCadenceStep.update.mock.calls.map((call) => call[0])).toEqual([
+      { where: { id: 'b' }, data: { orderIndex: 0 } },
+      { where: { id: 'a' }, data: { orderIndex: 1 } },
+    ])
+  })
+})

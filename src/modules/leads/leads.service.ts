@@ -1,5 +1,6 @@
-import { Injectable, NotFoundException, ForbiddenException, ConflictException } from '@nestjs/common'
+import { Injectable, NotFoundException, ConflictException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
+import { assertCanViewLead } from '../../common/utils/lead-visibility'
 import { normalizeStageName } from '../../common/utils/stage'
 import { PrismaService } from '../../prisma/prisma.service'
 import { CadencesService, type CadenceResult } from '../cadences/cadences.service'
@@ -157,12 +158,7 @@ export class LeadsService {
     lead: { ownerId: string | null; teamId: string | null },
     requestingUser: { role: string; id: string; teamId: string | null },
   ) {
-    if (requestingUser.role === 'corretor' && lead.ownerId !== requestingUser.id) {
-      throw new ForbiddenException('Acesso negado')
-    }
-    if (requestingUser.role === 'coordenador' && lead.teamId !== requestingUser.teamId) {
-      throw new ForbiddenException('Acesso negado')
-    }
+    assertCanViewLead(lead, requestingUser)
   }
 
   async findById(organizationId: string, id: string, requestingUser: { role: string; id: string; teamId: string | null }) {

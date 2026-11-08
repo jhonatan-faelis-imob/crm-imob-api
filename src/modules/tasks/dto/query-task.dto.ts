@@ -30,6 +30,11 @@ export class QueryTaskDto {
   @IsString()
   period?: string // 'today' | 'week' | 'month' | 'overdue'
 
+  // Origem: 'true' só as criadas pela cadência, 'false' só as manuais
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  auto?: string
+
   @IsOptional()
   @Type(() => Number)
   @IsInt()
