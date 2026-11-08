@@ -1,4 +1,5 @@
-import { Injectable, NotFoundException } from '@nestjs/common'
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common'
+import { Prisma } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
 import { CreatePropertyDto } from './dto/create-property.dto'
 import { QueryPropertyDto } from './dto/query-property.dto'
@@ -113,7 +114,15 @@ export class PropertiesService {
 
   async addLeadLink(organizationId: string, propertyId: string, leadId: string, notes?: string) {
     await this.prisma.property.findFirstOrThrow({ where: { id: propertyId, organizationId } })
-    return this.prisma.leadProperty.create({ data: { leadId, propertyId, notes } })
+    try {
+      return await this.prisma.leadProperty.create({ data: { leadId, propertyId, notes } })
+    } catch (error) {
+      // Vínculo repetido: a chave composta (leadId, propertyId) recusa
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new ConflictException('Imóvel já vinculado a este lead')
+      }
+      throw error
+    }
   }
 
   async removeLeadLink(propertyId: string, leadId: string) {

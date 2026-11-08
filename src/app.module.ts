@@ -19,6 +19,7 @@ import { MessageTemplatesModule } from './modules/message-templates/message-temp
 import { MyDayModule } from './modules/my-day/my-day.module'
 import { CadencesModule } from './modules/cadences/cadences.module'
 import { DocumentsModule } from './modules/documents/documents.module'
+import { SimulationsModule } from './modules/simulations/simulations.module'
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard'
 import { RolesGuard } from './common/guards/roles.guard'
 import { TenantInterceptor } from './common/interceptors/tenant.interceptor'
@@ -45,6 +46,7 @@ import configuration from './config/configuration'
     MyDayModule,
     CadencesModule,
     DocumentsModule,
+    SimulationsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },
