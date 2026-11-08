@@ -1,13 +1,44 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, Query } from '@nestjs/common'
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpCode } from '@nestjs/common'
 import { PropertiesService } from './properties.service'
 import { CreatePropertyDto } from './dto/create-property.dto'
 import { QueryPropertyDto } from './dto/query-property.dto'
+import { UpdatePropertyDto } from './dto/update-property.dto'
+import { AiDescribeDto, PortalReadinessDto } from './dto/portal.dto'
+import { AiService } from '../ai/ai.service'
+import { AiDescribeRateLimiter } from './ai-describe-rate-limiter'
+import { portalConfig } from './portal.config'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { Roles } from '../../common/decorators/roles.decorator'
 
 @Controller('properties')
 export class PropertiesController {
-  constructor(private service: PropertiesService) {}
+  constructor(
+    private service: PropertiesService,
+    private ai: AiService,
+    private aiLimiter: AiDescribeRateLimiter,
+  ) {}
+
+  // Rotas fixas antes das rotas com :id
+
+  @Get('portal-config')
+  getPortalConfig() {
+    return portalConfig()
+  }
+
+  /** Checklist ao vivo do formulário: avalia o rascunho e não grava nada */
+  @Post('portal-readiness')
+  @HttpCode(200)
+  checkPortalReadiness(@Body() dto: PortalReadinessDto) {
+    return this.service.readiness(dto)
+  }
+
+  /** Título e descrição pela IA (qualquer perfil, 20 por hora por usuário) */
+  @Post('ai/describe')
+  @HttpCode(200)
+  describeWithAi(@CurrentUser() user: { id: string }, @Body() dto: AiDescribeDto) {
+    this.aiLimiter.consume(user.id)
+    return this.ai.describeProperty(dto)
+  }
 
   @Post()
   @Roles('corretor')
@@ -46,7 +77,7 @@ export class PropertiesController {
   update(
     @CurrentUser() user: { organizationId: string },
     @Param('id') id: string,
-    @Body() dto: Partial<CreatePropertyDto>,
+    @Body() dto: UpdatePropertyDto,
   ) {
     return this.service.update(user.organizationId, id, dto)
   }

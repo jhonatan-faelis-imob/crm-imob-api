@@ -1,11 +1,21 @@
-import { Injectable, InternalServerErrorException } from '@nestjs/common'
+import { BadGatewayException, Injectable, InternalServerErrorException, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import { PrismaService } from '../../prisma/prisma.service'
+import {
+  buildPropertyDescriptionPrompt,
+  parsePropertyDescription,
+  type PropertyDescribeInput,
+  type PropertyDescription,
+} from './property-description'
+
+// Mesmo modelo para todas as chamadas de IA
+const GEMINI_MODEL = 'gemini-1.5-flash'
 
 @Injectable()
 export class AiService {
   private genAI: GoogleGenerativeAI
+  private readonly logger = new Logger(AiService.name)
 
   constructor(
     private prisma: PrismaService,
@@ -59,7 +69,7 @@ Retorne SOMENTE este JSON:
 `
 
     try {
-      const model = this.genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
+      const model = this.genAI.getGenerativeModel({ model: GEMINI_MODEL })
       const result = await model.generateContent(prompt)
       const text = result.response.text().trim()
       const parsed = JSON.parse(text)
@@ -78,6 +88,21 @@ Retorne SOMENTE este JSON:
       return parsed
     } catch (error) {
       throw new InternalServerErrorException('Erro ao analisar lead com IA')
+    }
+  }
+
+  /** Título e descrição de imóvel de revenda. Falha do modelo ou resposta inválida viram 502 */
+  async describeProperty(input: PropertyDescribeInput): Promise<PropertyDescription> {
+    try {
+      const model = this.genAI.getGenerativeModel({
+        model: GEMINI_MODEL,
+        generationConfig: { responseMimeType: 'application/json' },
+      })
+      const result = await model.generateContent(buildPropertyDescriptionPrompt(input))
+      return parsePropertyDescription(result.response.text())
+    } catch (error) {
+      this.logger.warn(`Falha ao gerar descrição de imóvel: ${error instanceof Error ? error.message : String(error)}`)
+      throw new BadGatewayException('Não foi possível gerar o texto agora. Tente de novo em instantes.')
     }
   }
 }

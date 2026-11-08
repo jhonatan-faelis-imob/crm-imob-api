@@ -31,6 +31,10 @@ export class QueryPropertyDto {
   minIncome?: string
 
   @IsOptional()
+  @IsIn(['true', 'false'])
+  publishToPortals?: 'true' | 'false'
+
+  @IsOptional()
   @IsInt()
   @Type(() => Number)
   @Min(1)

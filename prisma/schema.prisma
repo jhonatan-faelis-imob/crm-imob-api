@@ -172,6 +172,7 @@ model Lead {
   tags         LeadTagRelation[]
   stageHistory LeadStageHistory[]
   checklistItems LeadChecklistItem[]
+  propertiesForSale Property[] @relation("PropertySeller")
 
   @@map("leads")
   @@index([organizationId])
@@ -247,6 +248,28 @@ model Property {
   minIncome      Decimal? @map("min_income") @db.Decimal(15, 2)
   maxIncome      Decimal? @map("max_income") @db.Decimal(15, 2)
   propertyStatus String?  @map("property_status") @default("lancamento")
+  // Revenda preparada para portais (areaM2 = área útil; lotAreaM2 = área total)
+  propertyType         String?  @map("property_type")
+  streetNumber         String?  @map("street_number")
+  complement           String?
+  lotAreaM2            Decimal? @map("lot_area_m2") @db.Decimal(10, 2)
+  suites               Int?
+  unitFloor            Int?     @map("unit_floor")
+  buildingFloors       Int?     @map("building_floors")
+  yearBuilt            Int?     @map("year_built")
+  condoFee             Decimal? @map("condo_fee") @db.Decimal(15, 2)
+  iptuValue            Decimal? @map("iptu_value") @db.Decimal(15, 2)
+  iptuPeriod           String?  @map("iptu_period")
+  features             String[] @default([])
+  acceptsFinancing     Boolean? @map("accepts_financing")
+  acceptsFgts          Boolean? @map("accepts_fgts")
+  exclusive            Boolean  @default(false)
+  commissionPct        Decimal? @map("commission_pct") @db.Decimal(5, 2)
+  internalNotes        String?  @map("internal_notes")
+  // Proprietário (lead). Não confundir com ownerId, que é o corretor responsável
+  sellerLeadId         String?  @map("seller_lead_id")
+  publishToPortals     Boolean  @default(false) @map("publish_to_portals")
+  portalAddressDisplay String   @default("street") @map("portal_address_display")
   sold           Boolean  @default(false)
   active         Boolean  @default(true)
   createdAt      DateTime @default(now()) @map("created_at")
@@ -254,12 +277,14 @@ model Property {
 
   organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   owner        User?          @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  sellerLead   Lead?          @relation("PropertySeller", fields: [sellerLeadId], references: [id], onDelete: SetNull)
   leads        LeadProperty[]
   sales        Sale[]
 
   @@map("properties")
   @@index([organizationId])
   @@index([kind])
+  @@index([organizationId, kind, publishToPortals])
 }
 
 model LeadProperty {
