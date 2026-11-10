@@ -1,7 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common'
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
 import { PrismaService } from '../../prisma/prisma.service'
 import { InteractionsService } from '../interactions/interactions.service'
 import { CreateTaskDto } from './dto/create-task.dto'
+import { UpdateTaskDto } from './dto/update-task.dto'
 import { CompleteTaskDto } from './dto/complete-task.dto'
 import { QueryTaskDto } from './dto/query-task.dto'
 
@@ -178,12 +179,16 @@ export class TasksService {
     return this.prisma.task.update({ where: { id }, data: { status: 'cancelada' } })
   }
 
-  async update(organizationId: string, id: string, dto: Partial<CreateTaskDto>) {
+  async update(organizationId: string, id: string, dto: UpdateTaskDto | undefined) {
+    // Corpo ausente ou sem nenhum campo: 400, nunca TypeError (500)
+    if (!dto || Object.values(dto).every((value) => value === undefined)) {
+      throw new BadRequestException('Nada para atualizar')
+    }
     const task = await this.prisma.task.findFirst({ where: { id, organizationId } })
     if (!task) throw new NotFoundException('Tarefa não encontrada')
 
     // Tarefa automática pode ser editada, mas continua automática e ligada ao mesmo passo
-    const data: Partial<CreateTaskDto> = { ...dto }
+    const data: UpdateTaskDto = { ...dto }
     for (const field of CADENCE_FIELDS) delete (data as Record<string, unknown>)[field]
 
     return this.prisma.task.update({

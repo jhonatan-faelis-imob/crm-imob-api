@@ -1,6 +1,7 @@
 import { Controller, Get, Post, Patch, Delete, Body, Param, Query } from '@nestjs/common'
 import { TasksService } from './tasks.service'
 import { CreateTaskDto } from './dto/create-task.dto'
+import { UpdateTaskDto } from './dto/update-task.dto'
 import { CompleteTaskDto } from './dto/complete-task.dto'
 import { QueryTaskDto } from './dto/query-task.dto'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
@@ -34,7 +35,7 @@ export class TasksController {
   update(
     @CurrentUser() user: { organizationId: string },
     @Param('id') id: string,
-    @Body() dto: Partial<CreateTaskDto>,
+    @Body() dto: UpdateTaskDto,
   ) {
     return this.service.update(user.organizationId, id, dto)
   }
