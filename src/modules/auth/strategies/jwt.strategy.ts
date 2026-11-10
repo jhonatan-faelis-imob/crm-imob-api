@@ -4,6 +4,7 @@ import { ExtractJwt, Strategy } from 'passport-jwt'
 import { ConfigService } from '@nestjs/config'
 import { PrismaService } from '../../../prisma/prisma.service'
 import { JwtPayload } from '../interfaces/jwt-payload.interface'
+import { isSessionCurrent } from '../session-stamp'
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
@@ -29,13 +30,20 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         organizationId: true,
         teamId: true,
         active: true,
+        updatedAt: true,
       },
     })
 
     if (!user || !user.active) {
       throw new UnauthorizedException('Usuário não encontrado ou inativo')
     }
+    // Senha ou dados do usuário mudaram depois da emissão: token antigo deixa de valer
+    if (!isSessionCurrent(payload.pwd, user.updatedAt)) {
+      throw new UnauthorizedException('Sessão encerrada. Entre novamente')
+    }
 
-    return user
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { updatedAt, ...current } = user
+    return current
   }
 }

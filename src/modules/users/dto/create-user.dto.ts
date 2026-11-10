@@ -1,4 +1,6 @@
 import { IsString, IsEmail, IsNotEmpty, IsOptional, IsIn, IsUUID, MinLength } from 'class-validator'
+import { Transform } from 'class-transformer'
+import { trimLowerEmail } from '../../../common/utils/email'
 import { ROLES } from '../user-permissions'
 
 export class CreateUserDto {
@@ -6,13 +8,14 @@ export class CreateUserDto {
   @IsNotEmpty()
   name: string
 
+  @Transform(trimLowerEmail)
   @IsEmail()
   email: string
 
   /** Sem senha: o backend gera uma e devolve uma única vez em temporaryPassword */
   @IsOptional()
   @IsString()
-  @MinLength(6)
+  @MinLength(8, { message: 'A senha deve ter no mínimo 8 caracteres' })
   password?: string
 
   @IsOptional()

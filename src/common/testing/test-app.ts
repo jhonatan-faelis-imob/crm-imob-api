@@ -22,6 +22,7 @@ export const testAuthUser = {
   organizationId: TEST_ORG,
   teamId: null,
   active: true,
+  updatedAt: new Date('2026-11-01T12:00:00.000Z'),
 }
 
 function fakePrisma(models: FakeModels): PrismaService {
@@ -55,6 +56,7 @@ export async function createTestApp(models: FakeModels = {}) {
     email: testAuthUser.email,
     role: testAuthUser.role,
     organizationId: TEST_ORG,
+    pwd: testAuthUser.updatedAt.getTime(),
   })
   return { app, token }
 }

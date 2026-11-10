@@ -2,10 +2,12 @@ import { Injectable, NotFoundException, ConflictException, ForbiddenException } 
 import type { Prisma } from '@prisma/client'
 import { randomBytes } from 'crypto'
 import { PrismaService } from '../../prisma/prisma.service'
+import { normalizeEmail } from '../../common/utils/email'
 import { AuthService } from '../auth/auth.service'
 import { assertTeamInOrganization, findCoordinatedTeam } from '../teams/team-rules'
 import { CreateUserDto } from './dto/create-user.dto'
 import { ListUsersQueryDto } from './dto/list-users.dto'
+import { ResetPasswordDto } from './dto/reset-password.dto'
 import { UpdateUserDto } from './dto/update-user.dto'
 import { canCoordinate, canManageUser, forbiddenRoleMessage, type Actor } from './user-permissions'
 
@@ -44,7 +46,9 @@ export class UsersService {
     assertTeamAllowedFor(actor, dto.teamId)
     if (dto.teamId) await assertTeamInOrganization(this.prisma, actor.organizationId, dto.teamId)
 
-    const existing = await this.prisma.user.findUnique({ where: { email: dto.email } })
+    const email = normalizeEmail(dto.email)
+    // insensitive: conta antiga gravada com maiúsculas também conta como duplicada
+    const existing = await this.prisma.user.findFirst({ where: { email: { equals: email, mode: 'insensitive' } } })
     if (existing) throw new ConflictException('Email já cadastrado')
 
     const { password, teamId, ...rest } = dto
@@ -52,7 +56,7 @@ export class UsersService {
     const passwordHash = await this.authService.hashPassword(password ?? temporaryPassword ?? '')
 
     const user = await this.prisma.user.create({
-      data: { ...rest, teamId: teamId ?? null, passwordHash, organizationId: actor.organizationId },
+      data: { ...rest, email, teamId: teamId ?? null, passwordHash, organizationId: actor.organizationId },
       select: USER_SELECT,
     })
     // Única vez que a senha gerada sai do servidor
@@ -110,9 +114,12 @@ export class UsersService {
     })
   }
 
-  async resetPassword(organizationId: string, id: string, newPassword: string) {
-    await this.findById(organizationId, id)
-    const passwordHash = await this.authService.hashPassword(newPassword)
-    return this.prisma.user.update({ where: { id }, data: { passwordHash } })
+  /** Gestor define a senha de alguém. Muda o updatedAt, então as sessões dessa pessoa caem */
+  async resetPassword(actor: Actor, id: string, dto: ResetPasswordDto) {
+    const target = await this.findById(actor.organizationId, id)
+    assertCanManage(actor, target.role)
+    const passwordHash = await this.authService.hashPassword(dto.password)
+    await this.prisma.user.update({ where: { id }, data: { passwordHash }, select: { id: true } })
+    return { ok: true }
   }
 }

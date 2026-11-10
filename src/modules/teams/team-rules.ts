@@ -36,3 +36,14 @@ export async function validateCoordinator(db: Db, actor: Actor, coordinatorId: s
   if (other) throw new ConflictException(`${user.name} já coordena a equipe "${other.name}". Troque o coordenador de lá antes.`)
   return user
 }
+
+/**
+ * Muda a equipe mantendo o updatedAt: trocar de equipe não encerra as sessões da pessoa
+ * (o token carimba o updatedAt; ver auth/session-stamp.ts). O teamId é sempre lido do banco a cada requisição
+ */
+export async function setTeamKeepingSessions(db: Db, where: Prisma.UserWhereInput, teamId: string | null) {
+  const users = await db.user.findMany({ where, select: { id: true, updatedAt: true } })
+  for (const user of users) {
+    await db.user.update({ where: { id: user.id }, data: { teamId, updatedAt: user.updatedAt } })
+  }
+}

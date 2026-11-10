@@ -4,7 +4,7 @@ import { canManageUser, forbiddenRoleMessage, type Actor } from '../users/user-p
 import { CreateTeamDto } from './dto/create-team.dto'
 import { TeamMembersDto } from './dto/team-members.dto'
 import { UpdateTeamDto } from './dto/update-team.dto'
-import { validateCoordinator } from './team-rules'
+import { setTeamKeepingSessions, validateCoordinator } from './team-rules'
 
 const TEAM_DETAIL_INCLUDE = {
   coordinator: { select: { id: true, name: true, avatarUrl: true, role: true } },
@@ -26,7 +26,7 @@ export class TeamsService {
         data: { name: dto.name, coordinatorId, organizationId: actor.organizationId },
       })
       // O coordenador passa a ser membro da equipe que coordena
-      if (coordinatorId) await tx.user.update({ where: { id: coordinatorId }, data: { teamId: team.id } })
+      if (coordinatorId) await setTeamKeepingSessions(tx, { id: coordinatorId }, team.id)
       return tx.team.findUniqueOrThrow({ where: { id: team.id }, include: TEAM_DETAIL_INCLUDE })
     })
   }
@@ -57,7 +57,7 @@ export class TeamsService {
       if (dto.coordinatorId) await validateCoordinator(tx, actor, dto.coordinatorId, id)
       await tx.team.update({ where: { id }, data: { name: dto.name, coordinatorId: dto.coordinatorId } })
       // Definir o coordenador também o coloca na equipe. Remover (null) não mexe no teamId dele
-      if (dto.coordinatorId) await tx.user.update({ where: { id: dto.coordinatorId }, data: { teamId: id } })
+      if (dto.coordinatorId) await setTeamKeepingSessions(tx, { id: dto.coordinatorId }, id)
       return tx.team.findUniqueOrThrow({ where: { id }, include: TEAM_DETAIL_INCLUDE })
     })
   }
@@ -113,14 +113,15 @@ export class TeamsService {
           const fromOtherTeam = addIds.map((userId) => byId.get(userId)).find((user) => user?.teamId && user.teamId !== id)
           if (fromOtherTeam) throw new ForbiddenException(`${fromOtherTeam.name} está em outra equipe`)
         }
-        await tx.user.updateMany({ where: { id: { in: addIds } }, data: { teamId: id } })
+        await setTeamKeepingSessions(tx, { id: { in: addIds } }, id)
       }
       // Só tira quem está nesta equipe
       if (removeIds.length > 0) {
-        await tx.user.updateMany({ where: { id: { in: removeIds }, teamId: id }, data: { teamId: null } })
+        await setTeamKeepingSessions(tx, { id: { in: removeIds }, teamId: id }, null)
       }
       return tx.team.findUniqueOrThrow({ where: { id }, include: TEAM_DETAIL_INCLUDE })
-    })
+      // Até 200 pessoas, uma atualização por pessoa (ver setTeamKeepingSessions)
+    }, { timeout: 20_000 })
   }
 
   async deactivate(organizationId: string, id: string) {

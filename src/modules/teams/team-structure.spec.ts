@@ -309,3 +309,21 @@ describe('TeamsService: membros', () => {
     await expect(teams.updateMembers(actor('gerente'), 't1', {})).rejects.toThrow('Nada para atualizar')
   })
 })
+
+describe('mudar de equipe não encerra sessões', () => {
+  it('definir coordenador e mover membros mantêm o updatedAt de cada pessoa', async () => {
+    const stamp = new Date('2026-11-01T12:00:00.000Z')
+    const users: Row[] = [
+      { ...user('coord', 'coordenador'), updatedAt: stamp },
+      { ...user('c1', 'corretor'), updatedAt: stamp },
+    ]
+    const { db, teams } = setup(users, [team('t1')])
+    await teams.update(actor('diretor'), 't1', { coordinatorId: 'coord' })
+    await teams.updateMembers(actor('diretor'), 't1', { addUserIds: ['c1'] })
+    await teams.updateMembers(actor('diretor'), 't1', { removeUserIds: ['c1'] })
+    expect(users.map((row) => row.updatedAt)).toEqual([stamp, stamp])
+    expect(users[0].teamId).toBe('t1')
+    expect(users[1].teamId).toBeNull()
+    expect(db.user.updateMany).not.toHaveBeenCalled()
+  })
+})

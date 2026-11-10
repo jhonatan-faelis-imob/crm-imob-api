@@ -1,6 +1,7 @@
 import { Injectable, ConflictException, NotFoundException } from '@nestjs/common'
 import * as bcrypt from 'bcryptjs'
 import { PrismaService } from '../../prisma/prisma.service'
+import { normalizeEmail } from '../../common/utils/email'
 import { CreateOrganizationDto } from './dto/create-organization.dto'
 
 @Injectable()
@@ -64,7 +65,7 @@ export class OrganizationsService {
       data: {
         organizationId: org.id,
         name: dto.name,
-        email: dto.email,
+        email: normalizeEmail(dto.email),
         phone: dto.phone,
         passwordHash,
         role: 'diretor',

@@ -2,6 +2,7 @@ import { Controller, Get, Post, Patch, Body, Param, Query } from '@nestjs/common
 import { UsersService } from './users.service'
 import { CreateUserDto } from './dto/create-user.dto'
 import { ListUsersQueryDto } from './dto/list-users.dto'
+import { ResetPasswordDto } from './dto/reset-password.dto'
 import { UpdateUserDto } from './dto/update-user.dto'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { Roles } from '../../common/decorators/roles.decorator'
@@ -38,11 +39,7 @@ export class UsersController {
 
   @Patch(':id/reset-password')
   @Roles('gerente')
-  resetPassword(
-    @CurrentUser() user: { organizationId: string },
-    @Param('id') id: string,
-    @Body('password') password: string,
-  ) {
-    return this.service.resetPassword(user.organizationId, id, password)
+  resetPassword(@CurrentUser() user: Actor, @Param('id') id: string, @Body() dto: ResetPasswordDto) {
+    return this.service.resetPassword(user, id, dto)
   }
 }
