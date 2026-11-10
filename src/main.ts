@@ -37,5 +37,7 @@ async function bootstrap() {
   const port = process.env.PORT ?? 3001
   await app.listen(port)
   console.log(`🚀 CRM Imob API rodando em http://localhost:${port}/api/v1`)
+  const rssMb = Math.round(process.memoryUsage().rss / 1024 / 1024)
+  console.log(`📦 Memória em repouso (RSS): ${rssMb} MB`)
 }
 bootstrap()
