@@ -1,9 +1,11 @@
-import { Controller, Get, Post, Patch, Body, Param } from '@nestjs/common'
+import { Controller, Get, Post, Patch, Body, Param, Query } from '@nestjs/common'
 import { UsersService } from './users.service'
 import { CreateUserDto } from './dto/create-user.dto'
+import { ListUsersQueryDto } from './dto/list-users.dto'
 import { UpdateUserDto } from './dto/update-user.dto'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { Roles } from '../../common/decorators/roles.decorator'
+import type { Actor } from './user-permissions'
 
 @Controller('users')
 export class UsersController {
@@ -11,16 +13,13 @@ export class UsersController {
 
   @Post()
   @Roles('coordenador')
-  create(
-    @CurrentUser() user: { organizationId: string; role: string },
-    @Body() dto: CreateUserDto,
-  ) {
-    return this.service.create(user.organizationId, dto, user.role)
+  create(@CurrentUser() user: Actor, @Body() dto: CreateUserDto) {
+    return this.service.create(user, dto)
   }
 
   @Get()
-  findAll(@CurrentUser() user: { organizationId: string; role: string; teamId: string | null }) {
-    return this.service.findAll(user.organizationId, user)
+  findAll(@CurrentUser() user: Actor, @Query() query: ListUsersQueryDto) {
+    return this.service.findAll(user, query)
   }
 
   @Get(':id')
@@ -33,12 +32,8 @@ export class UsersController {
 
   @Patch(':id')
   @Roles('coordenador')
-  update(
-    @CurrentUser() user: { organizationId: string },
-    @Param('id') id: string,
-    @Body() dto: UpdateUserDto,
-  ) {
-    return this.service.update(user.organizationId, id, dto)
+  update(@CurrentUser() user: Actor, @Param('id') id: string, @Body() dto: UpdateUserDto) {
+    return this.service.update(user, id, dto)
   }
 
   @Patch(':id/reset-password')

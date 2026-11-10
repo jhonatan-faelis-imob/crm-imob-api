@@ -1,8 +1,11 @@
 import { Controller, Get, Post, Patch, Delete, Body, Param } from '@nestjs/common'
 import { TeamsService } from './teams.service'
 import { CreateTeamDto } from './dto/create-team.dto'
+import { TeamMembersDto } from './dto/team-members.dto'
+import { UpdateTeamDto } from './dto/update-team.dto'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { Roles } from '../../common/decorators/roles.decorator'
+import type { Actor } from '../users/user-permissions'
 
 @Controller('teams')
 export class TeamsController {
@@ -10,11 +13,8 @@ export class TeamsController {
 
   @Post()
   @Roles('gerente')
-  create(
-    @CurrentUser() user: { organizationId: string },
-    @Body() dto: CreateTeamDto,
-  ) {
-    return this.service.create(user.organizationId, dto)
+  create(@CurrentUser() user: Actor, @Body() dto: CreateTeamDto) {
+    return this.service.create(user, dto)
   }
 
   @Get()
@@ -30,14 +30,16 @@ export class TeamsController {
     return this.service.findById(user.organizationId, id)
   }
 
+  @Patch(':id/members')
+  @Roles('coordenador')
+  updateMembers(@CurrentUser() user: Actor, @Param('id') id: string, @Body() dto: TeamMembersDto) {
+    return this.service.updateMembers(user, id, dto)
+  }
+
   @Patch(':id')
   @Roles('gerente')
-  update(
-    @CurrentUser() user: { organizationId: string },
-    @Param('id') id: string,
-    @Body() dto: Partial<CreateTeamDto>,
-  ) {
-    return this.service.update(user.organizationId, id, dto)
+  update(@CurrentUser() user: Actor, @Param('id') id: string, @Body() dto: UpdateTeamDto) {
+    return this.service.update(user, id, dto)
   }
 
   @Delete(':id')

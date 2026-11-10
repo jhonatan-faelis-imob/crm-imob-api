@@ -1,4 +1,5 @@
 import { IsString, IsOptional, IsIn, IsUUID, IsBoolean } from 'class-validator'
+import { ROLES } from '../user-permissions'
 
 export class UpdateUserDto {
   @IsOptional()
@@ -14,12 +15,13 @@ export class UpdateUserDto {
   creci?: string
 
   @IsOptional()
-  @IsIn(['diretor', 'gerente', 'coordenador', 'corretor', 'administrativo'])
+  @IsIn(ROLES)
   role?: string
 
+  /** null tira a pessoa da equipe */
   @IsOptional()
   @IsUUID()
-  teamId?: string
+  teamId?: string | null
 
   @IsOptional()
   @IsBoolean()

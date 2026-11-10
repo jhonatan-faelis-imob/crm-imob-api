@@ -5,7 +5,8 @@ export class CreateTeamDto {
   @IsNotEmpty()
   name: string
 
+  /** Opcional: dá para criar a equipe e definir o coordenador depois. null remove */
   @IsOptional()
   @IsUUID()
-  coordinatorId?: string
+  coordinatorId?: string | null
 }
