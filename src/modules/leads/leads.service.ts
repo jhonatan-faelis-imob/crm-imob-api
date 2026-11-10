@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { assertCanViewLead } from '../../common/utils/lead-visibility'
+import { findLeadByPhone, normalizePhone } from '../../common/utils/phone'
 import { normalizeStageName } from '../../common/utils/stage'
 import { PrismaService } from '../../prisma/prisma.service'
 import { CadencesService, type CadenceResult } from '../cadences/cadences.service'
@@ -41,21 +42,7 @@ export class LeadsService {
     dto: CreateLeadDto,
     requestingUser: { id: string; role: string; teamId: string | null },
   ) {
-    const phoneClean = dto.phone.replace(/\D/g, '')
-
-    const existing = await this.prisma.lead.findFirst({
-      where: {
-        organizationId,
-        active: true,
-        OR: [
-          { phone: dto.phone },
-          { phone: phoneClean },
-          { phone2: dto.phone },
-          { phone2: phoneClean },
-        ],
-      },
-      select: { id: true, name: true, phone: true, status: true },
-    })
+    const existing = await this.findDuplicatePhone(organizationId, dto.phone)
 
     if (existing) {
       throw new ConflictException(
@@ -95,6 +82,21 @@ export class LeadsService {
 
       return lead
     }, STAGE_TRANSACTION)
+  }
+
+  // Telefone válido: compara só os dígitos (acha número salvo com ou sem máscara, em phone ou phone2).
+  // Fora do padrão brasileiro: mantém a comparação exata de antes
+  private async findDuplicatePhone(organizationId: string, phone: string) {
+    if (normalizePhone(phone)) return findLeadByPhone(this.prisma, organizationId, phone)
+    const phoneClean = phone.replace(/D/g, '')
+    return this.prisma.lead.findFirst({
+      where: {
+        organizationId,
+        active: true,
+        OR: [{ phone }, { phone: phoneClean }, { phone2: phone }, { phone2: phoneClean }],
+      },
+      select: { id: true, name: true, status: true },
+    })
   }
 
   async findAll(

@@ -41,9 +41,9 @@ export class PropertiesController {
   /** Título e descrição pela IA (qualquer perfil, 20 por hora por usuário) */
   @Post('ai/describe')
   @HttpCode(200)
-  describeWithAi(@CurrentUser() user: { id: string }, @Body() dto: AiDescribeDto) {
+  describeWithAi(@CurrentUser() user: { id: string; organizationId: string }, @Body() dto: AiDescribeDto) {
     this.aiLimiter.consume(user.id)
-    return this.ai.describeProperty(dto)
+    return this.ai.describeProperty(user.organizationId, dto)
   }
 
   @Post()

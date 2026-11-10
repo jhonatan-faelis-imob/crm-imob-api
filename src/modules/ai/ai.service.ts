@@ -1,7 +1,7 @@
 import { BadGatewayException, Injectable, InternalServerErrorException, Logger } from '@nestjs/common'
-import { ConfigService } from '@nestjs/config'
-import { GoogleGenerativeAI } from '@google/generative-ai'
+import { GoogleGenerativeAI, type GenerationConfig } from '@google/generative-ai'
 import { PrismaService } from '../../prisma/prisma.service'
+import { AiSettingsService, type AiFeature } from './ai-settings.service'
 import {
   buildPropertyDescriptionPrompt,
   parsePropertyDescription,
@@ -9,22 +9,24 @@ import {
   type PropertyDescription,
 } from './property-description'
 
-// Mesmo modelo para todas as chamadas de IA
-const GEMINI_MODEL = 'gemini-1.5-flash'
-
 @Injectable()
 export class AiService {
-  private genAI: GoogleGenerativeAI
   private readonly logger = new Logger(AiService.name)
 
   constructor(
     private prisma: PrismaService,
-    private config: ConfigService,
-  ) {
-    this.genAI = new GoogleGenerativeAI(this.config.get<string>('gemini.apiKey') ?? '')
+    private settings: AiSettingsService,
+  ) {}
+
+  // Chave (própria da organização ou do sistema) e modelo (GEMINI_MODEL) a cada chamada.
+  // Recurso desligado pelo gestor: 403 antes de qualquer chamada
+  private async modelFor(organizationId: string, feature: AiFeature, generationConfig?: GenerationConfig) {
+    const { apiKey, model } = await this.settings.resolve(organizationId, feature)
+    return new GoogleGenerativeAI(apiKey).getGenerativeModel({ model, generationConfig })
   }
 
   async analyzeLeadScore(organizationId: string, leadId: string) {
+    const model = await this.modelFor(organizationId, 'leadScore')
     const lead = await this.prisma.lead.findFirst({
       where: { id: leadId, organizationId },
       include: {
@@ -69,7 +71,6 @@ Retorne SOMENTE este JSON:
 `
 
     try {
-      const model = this.genAI.getGenerativeModel({ model: GEMINI_MODEL })
       const result = await model.generateContent(prompt)
       const text = result.response.text().trim()
       const parsed = JSON.parse(text)
@@ -92,12 +93,9 @@ Retorne SOMENTE este JSON:
   }
 
   /** Título e descrição de imóvel de revenda. Falha do modelo ou resposta inválida viram 502 */
-  async describeProperty(input: PropertyDescribeInput): Promise<PropertyDescription> {
+  async describeProperty(organizationId: string, input: PropertyDescribeInput): Promise<PropertyDescription> {
+    const model = await this.modelFor(organizationId, 'propertyCopy', { responseMimeType: 'application/json' })
     try {
-      const model = this.genAI.getGenerativeModel({
-        model: GEMINI_MODEL,
-        generationConfig: { responseMimeType: 'application/json' },
-      })
       const result = await model.generateContent(buildPropertyDescriptionPrompt(input))
       return parsePropertyDescription(result.response.text())
     } catch (error) {

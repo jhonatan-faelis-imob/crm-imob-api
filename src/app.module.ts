@@ -22,6 +22,7 @@ import { DocumentsModule } from './modules/documents/documents.module'
 import { SimulationsModule } from './modules/simulations/simulations.module'
 import { PropertySharesModule } from './modules/property-shares/property-shares.module'
 import { HealthModule } from './modules/health/health.module'
+import { IntegrationsModule } from './modules/integrations/integrations.module'
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard'
 import { RolesGuard } from './common/guards/roles.guard'
 import { TenantInterceptor } from './common/interceptors/tenant.interceptor'
@@ -51,6 +52,7 @@ import configuration from './config/configuration'
     SimulationsModule,
     PropertySharesModule,
     HealthModule,
+    IntegrationsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

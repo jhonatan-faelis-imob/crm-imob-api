@@ -3,6 +3,7 @@ import {
   IsIn, IsNumber, IsBoolean, IsUUID, IsDateString
 } from 'class-validator'
 import { Type } from 'class-transformer'
+import { LEAD_SOURCE_VALUES } from '../lead-sources'
 
 export class CreateLeadDto {
   @IsString()
@@ -25,7 +26,7 @@ export class CreateLeadDto {
   @IsIn(['interessado', 'proprietario'])
   profile?: string
 
-  @IsIn(['instagram','facebook','indicacao','site','plantao','portais','outro'])
+  @IsIn(LEAD_SOURCE_VALUES)
   source: string
 
   @IsIn(['compra','venda','locacao'])

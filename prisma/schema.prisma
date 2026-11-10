@@ -36,6 +36,8 @@ model Organization {
   documentRequirements DocumentRequirement[]
   leadChecklistItems   LeadChecklistItem[]
   propertyShares       PropertyShare[]
+  integrations         Integration[]
+  integrationEvents    IntegrationEvent[]
 
   @@map("organizations")
 }
@@ -158,6 +160,10 @@ model Lead {
   aiUpdatedAt         DateTime? @map("ai_updated_at")
   lostReason          String?   @map("lost_reason")
   notes               String?
+  /// Detalhe da origem (ex.: "Google Ads · campanha 123 · formulário 456")
+  sourceDetail        String?   @map("source_detail")
+  /// Id do lead no provedor (Google Ads, portais, Meta): o mesmo lead nunca entra duas vezes
+  externalLeadId      String?   @map("external_lead_id")
   active              Boolean   @default(true)
   lastContactAt       DateTime? @map("last_contact_at")
   createdAt           DateTime  @default(now()) @map("created_at")
@@ -178,6 +184,7 @@ model Lead {
   propertiesForSale Property[] @relation("PropertySeller")
   propertyShares    PropertyShare[]
 
+  @@unique([organizationId, externalLeadId])
   @@map("leads")
   @@index([organizationId])
   @@index([ownerId])
@@ -650,4 +657,44 @@ model PropertyShare {
   @@index([propertyId])
   @@index([leadId])
   @@index([organizationId, createdBy])
+}
+
+// Uma linha por organização e provedor (google_ads | ai | grupo_olx | chaves_na_mao | meta).
+// secretsEnc: JSON de segredos cifrado (AES-256-GCM, ver SecretsService). createdBy sem FK
+model Integration {
+  id             String    @id @default(uuid())
+  organizationId String    @map("organization_id")
+  provider       String
+  enabled        Boolean   @default(false)
+  config         Json      @default("{}")
+  secretsEnc     String?   @map("secrets_enc")
+  publicToken    String?   @unique @map("public_token")
+  lastEventAt    DateTime? @map("last_event_at")
+  lastError      String?   @map("last_error")
+  createdBy      String?   @map("created_by")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, provider])
+  @@map("integrations")
+}
+
+// Atividade das integrações (status: ok | ignorado | erro | teste). Payload sanitizado, sem segredos. leadId sem FK
+model IntegrationEvent {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  provider       String
+  kind           String
+  status         String
+  summary        String
+  payload        Json?
+  leadId         String?  @map("lead_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("integration_events")
+  @@index([organizationId, provider, createdAt])
 }
