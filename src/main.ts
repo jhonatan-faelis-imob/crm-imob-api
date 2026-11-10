@@ -1,7 +1,7 @@
 import { NestFactory } from '@nestjs/core'
-import { ValidationPipe } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { AppModule } from './app.module'
+import { createValidationPipe } from './common/pipes/validation.pipe'
 import { json } from 'express'
 
 ;(Prisma.Decimal.prototype as unknown as { toJSON: () => number }).toJSON =
@@ -12,11 +12,7 @@ async function bootstrap() {
   // Webhooks públicos das integrações: corpo limitado a 100 KB. Registrado antes do parser do Nest,
   // que encontra o corpo já lido e não processa de novo
   app.use('/api/v1/public/integrations', json({ limit: '100kb' }))
-  app.useGlobalPipes(new ValidationPipe({
-    whitelist: true,
-    forbidNonWhitelisted: true,
-    transform: true,
-  }))
+  app.useGlobalPipes(createValidationPipe())
   const allowedOrigins = [
     'http://localhost:3000',
     process.env.FRONTEND_URL,
