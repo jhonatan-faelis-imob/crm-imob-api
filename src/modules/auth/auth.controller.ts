@@ -1,3 +1,4 @@
+import { AllowWhenBlocked } from '../../common/decorators/allow-when-blocked.decorator'
 import { Controller, Post, Body, Get, Patch, UseGuards, HttpCode, HttpStatus } from '@nestjs/common'
 import { AuthService } from './auth.service'
 import { ChangePasswordDto } from './dto/change-password.dto'
@@ -8,7 +9,9 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { Public } from '../../common/decorators/public.decorator'
 
+// Login, perfil e senha funcionam mesmo com a assinatura bloqueada
 @Controller('auth')
+@AllowWhenBlocked()
 export class AuthController {
   constructor(private authService: AuthService) {}
 

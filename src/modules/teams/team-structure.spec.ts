@@ -59,7 +59,8 @@ function table(rows: Row[], prefix: string) {
 }
 
 function fakeDb(users: Row[], teams: Row[]) {
-  const tables = { user: table(users, 'u'), team: table(teams, 't') }
+  // Sem organização: o limite de assentos não se aplica (testado em billing.spec.ts)
+  const tables = { user: table(users, 'u'), team: table(teams, 't'), organization: { findUnique: jest.fn(() => Promise.resolve(null)) } }
   return { ...tables, $transaction: (fn: (tx: typeof tables) => Promise<unknown>) => fn(tables) }
 }
 

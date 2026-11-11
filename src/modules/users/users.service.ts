@@ -4,6 +4,7 @@ import { randomBytes } from 'crypto'
 import { PrismaService } from '../../prisma/prisma.service'
 import { normalizeEmail } from '../../common/utils/email'
 import { AuthService } from '../auth/auth.service'
+import { assertSeatAvailable } from '../billing/seat-limit'
 import { assertTeamInOrganization, findCoordinatedTeam } from '../teams/team-rules'
 import { CreateUserDto } from './dto/create-user.dto'
 import { ListUsersQueryDto } from './dto/list-users.dto'
@@ -51,6 +52,9 @@ export class UsersService {
     const existing = await this.prisma.user.findFirst({ where: { email: { equals: email, mode: 'insensitive' } } })
     if (existing) throw new ConflictException('Email já cadastrado')
 
+    // Assentos do plano: conta os ativos da organização (402 SEAT_LIMIT)
+    await assertSeatAvailable(this.prisma, actor.organizationId)
+
     const { password, teamId, ...rest } = dto
     const temporaryPassword = password ? undefined : generateTemporaryPassword()
     const passwordHash = await this.authService.hashPassword(password ?? temporaryPassword ?? '')
@@ -95,6 +99,8 @@ export class UsersService {
       if (dto.role !== undefined) assertCanManage(actor, dto.role)
     }
     assertTeamAllowedFor(actor, dto.teamId)
+    // Reativar ocupa um assento
+    if (dto.active === true && !current.active) await assertSeatAvailable(this.prisma, actor.organizationId)
 
     const teamChanges = dto.teamId !== undefined && dto.teamId !== current.teamId
     if (dto.teamId) await assertTeamInOrganization(this.prisma, actor.organizationId, dto.teamId)

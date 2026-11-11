@@ -1,3 +1,4 @@
+import { AllowWhenBlocked } from '../../common/decorators/allow-when-blocked.decorator'
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { CreateMessageTemplateDto } from './dto/create-message-template.dto'
@@ -21,6 +22,8 @@ export class MessageTemplatesController {
     return this.service.create(user.organizationId, user, dto)
   }
 
+  // Renderizar só lê: liberado com a assinatura bloqueada
+  @AllowWhenBlocked()
   @Post('render-free')
   renderFree(@CurrentUser() user: AuthenticatedUser, @Body() dto: LeadMessageDto) {
     return this.service.renderFree(user.organizationId, user, dto)
@@ -45,6 +48,7 @@ export class MessageTemplatesController {
     return this.service.remove(user.organizationId, id, user)
   }
 
+  @AllowWhenBlocked()
   @Post(':id/render')
   render(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: RenderTemplateDto) {
     return this.service.render(user.organizationId, id, user, dto.leadId)

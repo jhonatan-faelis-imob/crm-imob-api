@@ -1,3 +1,4 @@
+import { AllowWhenBlocked } from '../../common/decorators/allow-when-blocked.decorator'
 import { Body, Controller, Get, HttpCode, Post } from '@nestjs/common'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { CalculateSimulationDto } from './dto/calculate-simulation.dto'
@@ -13,6 +14,8 @@ export class SimulationsController {
     return this.service.getConfig()
   }
 
+  // Só calcula, não grava: liberado com a assinatura bloqueada
+  @AllowWhenBlocked()
   @Post('calculate')
   @HttpCode(200)
   calculate(@CurrentUser() user: { organizationId: string }, @Body() dto: CalculateSimulationDto) {

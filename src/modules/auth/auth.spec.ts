@@ -70,7 +70,7 @@ function fakeDb(rows: UserRow[]) {
       return Promise.resolve(withRelations(row))
     }),
   }
-  return { user, team: { findFirst: jest.fn(() => Promise.resolve(null)) } }
+  return { user, team: { findFirst: jest.fn(() => Promise.resolve(null)) }, organization: { findUnique: jest.fn(() => Promise.resolve(null)) } }
 }
 
 async function setup() {

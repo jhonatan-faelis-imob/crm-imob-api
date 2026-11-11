@@ -23,6 +23,9 @@ import { SimulationsModule } from './modules/simulations/simulations.module'
 import { PropertySharesModule } from './modules/property-shares/property-shares.module'
 import { HealthModule } from './modules/health/health.module'
 import { IntegrationsModule } from './modules/integrations/integrations.module'
+import { BillingModule } from './modules/billing/billing.module'
+import { AdminModule } from './modules/admin/admin.module'
+import { SubscriptionGuard } from './modules/billing/subscription.guard'
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard'
 import { RolesGuard } from './common/guards/roles.guard'
 import { TenantInterceptor } from './common/interceptors/tenant.interceptor'
@@ -53,10 +56,14 @@ import configuration from './config/configuration'
     PropertySharesModule,
     HealthModule,
     IntegrationsModule,
+    BillingModule,
+    AdminModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
+    // Depois do JWT: bloqueada ou cancelada fica somente leitura (402 na escrita)
+    { provide: APP_GUARD, useClass: SubscriptionGuard },
     { provide: APP_INTERCEPTOR, useClass: TenantInterceptor },
   ],
 })

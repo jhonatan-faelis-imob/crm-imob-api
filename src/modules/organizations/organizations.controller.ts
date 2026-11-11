@@ -1,31 +1,24 @@
-import { Controller, Get, Post, Patch, Body, Param, UseGuards } from '@nestjs/common'
+import { Controller, Get, Post, Patch, Body, Req } from '@nestjs/common'
+import type { Request } from 'express'
 import { OrganizationsService } from './organizations.service'
-import { CreateOrganizationDto } from './dto/create-organization.dto'
+import { OnboardingDto } from './dto/onboarding.dto'
+import { UpdateMyOrganizationDto } from './dto/update-my-organization.dto'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { Roles } from '../../common/decorators/roles.decorator'
 import { Public } from '../../common/decorators/public.decorator'
+import { clientIp } from '../../common/utils/rate-limiter'
+
+// Criar organização é pelo painel /admin (POST /admin/organizations) ou pelo onboarding, quando ligado
 
 @Controller('organizations')
 export class OrganizationsController {
   constructor(private service: OrganizationsService) {}
 
-  @Post()
-  @Roles('diretor')
-  create(@Body() dto: CreateOrganizationDto) {
-    return this.service.create(dto)
-  }
-
+  /** Desligado por padrão (PUBLIC_SIGNUP_ENABLED): 403 */
   @Public()
   @Post('onboarding')
-  async onboarding(@Body() body: {
-    orgName: string
-    slug: string
-    name: string
-    email: string
-    phone?: string
-    password: string
-  }) {
-    return this.service.onboarding(body)
+  onboarding(@Body() dto: OnboardingDto, @Req() request: Request) {
+    return this.service.onboarding(dto, clientIp(request))
   }
 
   @Get('me')
@@ -35,10 +28,7 @@ export class OrganizationsController {
 
   @Patch('me')
   @Roles('diretor')
-  updateMyOrg(
-    @CurrentUser() user: { organizationId: string },
-    @Body() dto: Partial<CreateOrganizationDto>,
-  ) {
+  updateMyOrg(@CurrentUser() user: { organizationId: string }, @Body() dto: UpdateMyOrganizationDto) {
     return this.service.update(user.organizationId, dto)
   }
 }

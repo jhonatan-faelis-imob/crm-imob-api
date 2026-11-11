@@ -16,6 +16,21 @@ model Organization {
   active    Boolean  @default(true)
   /// Último número usado no código automático dos imóveis (00001, 00002...)
   propertyCodeSeq Int @default(0) @map("property_code_seq")
+  /// Assinatura (sem gateway, ver src/modules/billing). Usuários ativos permitidos
+  seats              Int       @default(1)
+  /// teste | ativa | atrasada | bloqueada | cancelada
+  subscriptionStatus String    @default("ativa") @map("subscription_status")
+  trialEndsAt        DateTime? @map("trial_ends_at")
+  currentPeriodEnd   DateTime? @map("current_period_end")
+  billingName        String?   @map("billing_name")
+  /// CPF ou CNPJ, só dígitos
+  billingDocument    String?   @map("billing_document")
+  billingEmail       String?   @map("billing_email")
+  billingPhone       String?   @map("billing_phone")
+  /// Valor combinado (pode diferir da tabela)
+  monthlyPrice       Decimal?  @map("monthly_price") @db.Decimal(10, 2)
+  /// Anotações internas do superadministrador
+  notes              String?
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -38,8 +53,10 @@ model Organization {
   propertyShares       PropertyShare[]
   integrations         Integration[]
   integrationEvents    IntegrationEvent[]
+  billingEvents        BillingEvent[]
 
   @@map("organizations")
+  @@index([subscriptionStatus])
 }
 
 model Team {
@@ -697,4 +714,21 @@ model IntegrationEvent {
 
   @@map("integration_events")
   @@index([organizationId, provider, createdAt])
+}
+
+/// Histórico da assinatura: plano_alterado, bloqueada, desbloqueada, teste_estendido, pagamento_registrado, observacao
+model BillingEvent {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  kind           String
+  description    String
+  data           Json?
+  /// E-mail de quem fez (superadministrador ou "sistema"); sem FK
+  createdBy      String?  @map("created_by")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("billing_events")
+  @@index([organizationId, createdAt])
 }

@@ -1,3 +1,4 @@
+import { AllowWhenBlocked } from '../../common/decorators/allow-when-blocked.decorator'
 import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpCode } from '@nestjs/common'
 import { PropertiesService } from './properties.service'
 import { CreatePropertyDto } from './dto/create-property.dto'
@@ -32,6 +33,8 @@ export class PropertiesController {
   }
 
   /** Checklist ao vivo do formulário: avalia o rascunho e não grava nada */
+  // Só confere: liberado com a assinatura bloqueada
+  @AllowWhenBlocked()
   @Post('portal-readiness')
   @HttpCode(200)
   checkPortalReadiness(@Body() dto: PortalReadinessDto) {
