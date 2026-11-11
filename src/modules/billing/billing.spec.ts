@@ -25,7 +25,6 @@ function statusOf(error: unknown) {
 describe('priceFor', () => {
   it.each([
     ['corretor', 1, 89.9],
-    ['corretor', 3, 89.9], // Corretor não vende assento extra
     ['equipe', 5, 247],
     ['equipe', 8, 247 + 3 * 30],
     ['equipe', 2, 247], // abaixo do incluído não dá desconto
@@ -36,6 +35,10 @@ describe('priceFor', () => {
   })
 
   it('plano desconhecido devolve null', () => expect(priceFor('pro', 5)).toBeNull())
+
+  it('Corretor com mais de 1 usuário é rejeitado (400)', () => {
+    expect(() => priceFor('corretor', 2)).toThrow(BadRequestException)
+  })
 })
 
 // ---------------------------------------------------------------- CPF e CNPJ
@@ -241,7 +244,7 @@ describe('nextStatus (tarefa diária)', () => {
 describe('aviso da faixa do topo', () => {
   it('teste terminando em N dias', () => {
     expect(subscriptionWarning({ subscriptionStatus: 'teste', trialEndsAt: daysFromNow(3), currentPeriodEnd: null }, NOW)).toEqual({
-      warning: 'Seu período de teste termina em 3 dias.',
+      warning: 'Teste termina em 3 dias.',
       level: 'aviso',
     })
   })

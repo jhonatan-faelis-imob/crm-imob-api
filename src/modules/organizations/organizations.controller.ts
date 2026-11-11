@@ -1,6 +1,6 @@
-import { Controller, Get, Post, Patch, Body, Req } from '@nestjs/common'
+import { Controller, Get, Post, Patch, Body, Req, UseGuards } from '@nestjs/common'
 import type { Request } from 'express'
-import { OrganizationsService } from './organizations.service'
+import { OrganizationsService, PublicSignupGuard } from './organizations.service'
 import { OnboardingDto } from './dto/onboarding.dto'
 import { UpdateMyOrganizationDto } from './dto/update-my-organization.dto'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
@@ -16,6 +16,7 @@ export class OrganizationsController {
 
   /** Desligado por padrão (PUBLIC_SIGNUP_ENABLED): 403 */
   @Public()
+  @UseGuards(PublicSignupGuard)
   @Post('onboarding')
   onboarding(@Body() dto: OnboardingDto, @Req() request: Request) {
     return this.service.onboarding(dto, clientIp(request))

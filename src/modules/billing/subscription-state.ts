@@ -8,6 +8,8 @@ export interface SubscriptionSnapshot {
   subscriptionStatus: string
   trialEndsAt: Date | null
   currentPeriodEnd: Date | null
+  /** Cancelada pelo cliente: segue valendo até o fim do período (ou do teste) */
+  canceledAt?: Date | null
 }
 
 export type WarningLevel = 'aviso' | 'bloqueio'
@@ -47,13 +49,18 @@ export function subscriptionWarning(
   if (status === 'bloqueada') return { warning: 'Assinatura bloqueada. O sistema está somente leitura.', level: 'bloqueio' }
   if (status === 'cancelada') return { warning: 'Assinatura cancelada. O sistema está somente leitura.', level: 'bloqueio' }
 
+  if (snapshot.canceledAt && (status === 'ativa' || status === 'teste')) {
+    const until = status === 'teste' ? snapshot.trialEndsAt : snapshot.currentPeriodEnd
+    const day = until ? until.toISOString().slice(0, 10).split('-').reverse().join('/') : null
+    return { warning: `Assinatura cancelada.${day ? ` O acesso continua até ${day}.` : ''}`, level: 'aviso' }
+  }
+
   if (status === 'teste') {
     const left = daysUntil(snapshot.trialEndsAt, now)
     if (left === null) return null
-    if (left <= 0) {
-      return { warning: 'Seu período de teste terminou. Fale com o suporte para continuar usando.', level: 'aviso' }
-    }
-    return { warning: `Seu período de teste termina em ${plural(left, 'dia', 'dias')}.`, level: 'aviso' }
+    // O front acrescenta "Assinar agora" (link para /assinatura)
+    if (left <= 0) return { warning: 'Seu teste terminou.', level: 'aviso' }
+    return { warning: `Teste termina em ${plural(left, 'dia', 'dias')}.`, level: 'aviso' }
   }
 
   if (status === 'atrasada') {
@@ -76,8 +83,13 @@ export function subscriptionWarning(
 export function nextStatus(
   snapshot: SubscriptionSnapshot,
   now: Date,
-): { status: 'atrasada' | 'bloqueada'; reason: string } | null {
+): { status: 'atrasada' | 'bloqueada' | 'cancelada'; reason: string } | null {
   const time = now.getTime()
+  // Cancelada pelo cliente: ao vencer o período (ou o teste) vira cancelada, sem passar por atrasada
+  const expiry = snapshot.subscriptionStatus === 'teste' ? snapshot.trialEndsAt : overdueSince(snapshot)
+  if (snapshot.canceledAt && ['teste', 'ativa', 'atrasada'].includes(snapshot.subscriptionStatus) && expiry && expiry.getTime() < time) {
+    return { status: 'cancelada', reason: 'Assinatura cancelada pelo cliente e período encerrado' }
+  }
   switch (snapshot.subscriptionStatus) {
     case 'teste':
       if (snapshot.trialEndsAt && snapshot.trialEndsAt.getTime() < time) {

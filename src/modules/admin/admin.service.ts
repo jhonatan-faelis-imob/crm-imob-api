@@ -4,7 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service'
 import { normalizeEmail } from '../../common/utils/email'
 import { AuthService } from '../auth/auth.service'
 import { billingInfoData } from '../billing/billing-info'
-import { defaultSeatsFor, planName, priceFor, TRIAL_DAYS } from '../billing/plans.config'
+import { assertPlanSeats, defaultSeatsFor, planName, priceFor, safePriceFor, TRIAL_DAYS } from '../billing/plans.config'
 import { SubscriptionCache } from '../billing/subscription-cache'
 import { nextStatus, periodEndAfterPayment } from '../billing/subscription-state'
 import { seedFunnelStages } from '../organizations/seed-funnel'
@@ -107,6 +107,11 @@ export class AdminService {
       include: {
         users: { select: USER_SELECT, orderBy: { name: 'asc' } },
         billingEvents: { orderBy: { createdAt: 'desc' }, take: 50 },
+        payments: {
+          orderBy: [{ dueDate: 'desc' }, { createdAt: 'desc' }],
+          take: 12,
+          select: { id: true, asaasPaymentId: true, value: true, status: true, billingType: true, dueDate: true, paidAt: true, invoiceUrl: true },
+        },
         _count: { select: { leads: true } },
       },
     })
@@ -117,7 +122,7 @@ export class AdminService {
       planName: planName(organization.plan),
       activeUsers: organization.users.filter((user) => user.active).length,
       leads: _count.leads,
-      suggestedPrice: priceFor(organization.plan, organization.seats),
+      suggestedPrice: safePriceFor(organization.plan, organization.seats),
     }
   }
 
@@ -132,6 +137,7 @@ export class AdminService {
     if (emailTaken) throw new ConflictException('E-mail do diretor já cadastrado')
 
     const seats = dto.seats ?? defaultSeatsFor(dto.plan)
+    assertPlanSeats(dto.plan, seats)
     const status = dto.subscriptionStatus ?? 'teste'
     const trialEndsAt =
       dateOrNull(dto.trialEndsAt) ?? (status === 'teste' ? new Date(now.getTime() + TRIAL_DAYS * DAY_MS) : null)
@@ -171,6 +177,7 @@ export class AdminService {
 
   async update(id: string, dto: UpdateAdminOrganizationDto, actorEmail: string) {
     const current = await this.findOrThrow(id)
+    if (dto.plan !== undefined || dto.seats !== undefined) assertPlanSeats(dto.plan ?? current.plan, dto.seats ?? current.seats)
 
     if (dto.seats !== undefined) {
       const active = await this.activeUsers(this.prisma, id)
@@ -312,7 +319,7 @@ export class AdminService {
   async recalculateSubscriptionStatuses(actorEmail = 'sistema', now = new Date()) {
     const organizations = await this.prisma.organization.findMany({
       where: { subscriptionStatus: { in: ['teste', 'ativa', 'atrasada'] } },
-      select: { id: true, name: true, subscriptionStatus: true, trialEndsAt: true, currentPeriodEnd: true },
+      select: { id: true, name: true, subscriptionStatus: true, trialEndsAt: true, currentPeriodEnd: true, canceledAt: true },
     })
     const changes: { id: string; name: string; from: string; to: string; reason: string }[] = []
     for (const organization of organizations) {

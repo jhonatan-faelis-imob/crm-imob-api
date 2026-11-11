@@ -23,12 +23,19 @@ export class BillingService {
       select: {
         plan: true, seats: true, subscriptionStatus: true, trialEndsAt: true, currentPeriodEnd: true, monthlyPrice: true,
         billingName: true, billingDocument: true, billingEmail: true, billingPhone: true,
+        billingType: true, asaasSubscriptionId: true, canceledAt: true, cancelReason: true,
       },
     })
     if (!organization) throw new NotFoundException('Organização não encontrada')
     const seatsUsed = await this.prisma.user.count({ where: { organizationId: actor.organizationId, active: true } })
     const notice = subscriptionWarning(organization, now)
     const { billingName, billingDocument, billingEmail, billingPhone, ...subscription } = organization
+    // Cobrança em aberto (atrasada ou pendente) com fatura: o link do aviso de atraso
+    const openPayment = await this.prisma.payment.findFirst({
+      where: { organizationId: actor.organizationId, status: { in: ['OVERDUE', 'PENDING'] }, invoiceUrl: { not: null } },
+      orderBy: [{ status: 'asc' }, { dueDate: 'asc' }],
+      select: { invoiceUrl: true, dueDate: true, value: true, status: true },
+    })
 
     return {
       plan: subscription.plan,
@@ -42,6 +49,11 @@ export class BillingService {
       monthlyPrice: subscription.monthlyPrice,
       warning: notice?.warning ?? null,
       warningLevel: notice?.level ?? null,
+      billingType: subscription.billingType,
+      hasSubscription: !!subscription.asaasSubscriptionId && !subscription.canceledAt,
+      canceledAt: subscription.canceledAt,
+      cancelReason: subscription.cancelReason,
+      openPayment,
       isSuperAdmin: isSuperAdmin(actor.email),
       billing: actor.role === 'diretor' ? { billingName, billingDocument, billingEmail, billingPhone } : null,
     }

@@ -2,6 +2,8 @@ import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Que
 import { AllowWhenBlocked } from '../../common/decorators/allow-when-blocked.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { SuperAdminGuard } from '../billing/super-admin'
+import { AsaasBillingService } from '../billing/asaas/asaas-billing.service'
+import { AsaasWebhookService } from '../billing/asaas/asaas-webhook.service'
 import { AdminService } from './admin.service'
 import {
   BlockOrganizationDto,
@@ -18,7 +20,11 @@ type AdminUser = { email: string }
 @UseGuards(SuperAdminGuard)
 @AllowWhenBlocked()
 export class AdminController {
-  constructor(private service: AdminService) {}
+  constructor(
+    private service: AdminService,
+    private asaasBilling: AsaasBillingService,
+    private webhooks: AsaasWebhookService,
+  ) {}
 
   @Get('summary')
   summary() {
@@ -61,6 +67,19 @@ export class AdminController {
   @HttpCode(200)
   registerPayment(@CurrentUser() user: AdminUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: RegisterPaymentDto) {
     return this.service.registerPayment(id, dto, user.email)
+  }
+
+  /** Relê assinatura e cobranças no Asaas e corrige a situação local */
+  @Post('organizations/:id/sync-asaas')
+  @HttpCode(200)
+  syncAsaas(@CurrentUser() user: AdminUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.asaasBilling.sync(id, user.email)
+  }
+
+  /** Últimas 100 entregas de webhook, para depuração */
+  @Get('webhooks')
+  webhookDeliveries() {
+    return this.webhooks.recent(100)
   }
 
   /** A tarefa diária, sob demanda (o projeto não tem @nestjs/schedule) */

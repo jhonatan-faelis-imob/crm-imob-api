@@ -31,6 +31,14 @@ model Organization {
   monthlyPrice       Decimal?  @map("monthly_price") @db.Decimal(10, 2)
   /// Anotações internas do superadministrador
   notes              String?
+  /// Asaas (assinatura self-service): ids do cliente e da assinatura, forma de cobrança e cancelamento
+  asaasCustomerId     String?   @map("asaas_customer_id")
+  asaasSubscriptionId String?   @map("asaas_subscription_id")
+  /// CREDIT_CARD | PIX | BOLETO | UNDEFINED
+  billingType         String?   @map("billing_type")
+  /// Cancelada pelo cliente: segue ativa até currentPeriodEnd, depois a tarefa diária passa para cancelada
+  canceledAt          DateTime? @map("canceled_at")
+  cancelReason        String?   @map("cancel_reason")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -54,9 +62,11 @@ model Organization {
   integrations         Integration[]
   integrationEvents    IntegrationEvent[]
   billingEvents        BillingEvent[]
+  payments             Payment[]
 
   @@map("organizations")
   @@index([subscriptionStatus])
+  @@index([asaasSubscriptionId])
 }
 
 model Team {
@@ -731,4 +741,50 @@ model BillingEvent {
 
   @@map("billing_events")
   @@index([organizationId, createdAt])
+}
+
+/// Cobranças do Asaas (espelho local, atualizado pelo webhook e pela sincronização do painel)
+model Payment {
+  id                  String    @id @default(uuid())
+  organizationId      String    @map("organization_id")
+  asaasPaymentId      String    @unique @map("asaas_payment_id")
+  asaasSubscriptionId String?   @map("asaas_subscription_id")
+  value               Decimal   @db.Decimal(10, 2)
+  netValue            Decimal?  @map("net_value") @db.Decimal(10, 2)
+  /// Status do Asaas: PENDING, RECEIVED, CONFIRMED, OVERDUE, REFUNDED...
+  status              String
+  billingType         String?   @map("billing_type")
+  dueDate             DateTime? @map("due_date")
+  paidAt              DateTime? @map("paid_at")
+  invoiceUrl          String?   @map("invoice_url")
+  bankSlipUrl         String?   @map("bank_slip_url")
+  description         String?
+  /// Objeto da cobrança, sem dados de cartão nem tokens
+  raw                 Json?
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("payments")
+  @@index([organizationId, createdAt])
+  @@index([status])
+}
+
+/// Entregas de webhook (idempotência pelo id do evento e depuração no /admin/webhooks)
+model WebhookDelivery {
+  id             String   @id @default(uuid())
+  provider       String
+  eventId        String   @map("event_id")
+  event          String
+  organizationId String?  @map("organization_id")
+  /// ok | ignorado | erro
+  status         String
+  message        String?
+  payload        Json?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@unique([provider, eventId])
+  @@map("webhook_deliveries")
+  @@index([provider, createdAt])
 }
