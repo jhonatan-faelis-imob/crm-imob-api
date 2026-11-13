@@ -1,5 +1,7 @@
+import { Logger } from '@nestjs/common'
 import type { NestExpressApplication } from '@nestjs/platform-express'
 import { createValidationPipe } from './common/pipes/validation.pipe'
+import { allowedOrigins, isOriginAllowed } from './common/utils/cors'
 
 export const JSON_BODY_LIMIT = '100kb'
 
@@ -15,13 +17,16 @@ export function configureApp(app: NestExpressApplication) {
   app.useBodyParser('json', { limit: JSON_BODY_LIMIT })
   app.useGlobalPipes(createValidationPipe())
 
-  const allowedOrigins = ['http://localhost:3000', process.env.FRONTEND_URL].filter(Boolean) as string[]
+  // FRONTEND_URL aceita vários endereços separados por vírgula; os dois lados são normalizados antes de comparar
+  const origins = allowedOrigins(process.env.FRONTEND_URL)
+  const logger = new Logger('CORS')
   app.enableCors({
     origin: (origin, callback) => {
       // Permitir requisições sem origin (ex: mobile, Postman, webhooks)
-      if (!origin) return callback(null, true)
-      if (allowedOrigins.includes(origin)) callback(null, true)
-      else callback(new Error(`CORS bloqueado para origem: ${origin}`))
+      if (!origin || isOriginAllowed(origin, origins)) return callback(null, true)
+      // Sem erro: a resposta sai sem os cabeçalhos de CORS (o navegador bloqueia), e não vira 500
+      logger.warn(`Origem recusada: ${origin}. Permitidas: ${origins.join(', ')}`)
+      callback(null, false)
     },
     credentials: true,
     methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],

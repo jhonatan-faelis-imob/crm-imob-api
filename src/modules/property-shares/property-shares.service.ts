@@ -9,6 +9,7 @@ import {
 import { ConfigService } from '@nestjs/config'
 import { Prisma } from '@prisma/client'
 import { HIERARCHY } from '../../common/guards/roles.guard'
+import { primaryFrontendUrl } from '../../common/utils/cors'
 import { PrismaService } from '../../prisma/prisma.service'
 import { InteractionsService } from '../interactions/interactions.service'
 import { LeadsService } from '../leads/leads.service'
@@ -51,7 +52,8 @@ export class PropertySharesService {
 
   /** Base do link. FRONTEND_URL precisa estar definido em produção */
   private url(token: string) {
-    const frontendUrl = this.config.get<string>('FRONTEND_URL')
+    // FRONTEND_URL pode ser uma lista (CORS): o link usa o primeiro endereço
+    const frontendUrl = primaryFrontendUrl(this.config.get<string>('FRONTEND_URL'))
     if (!frontendUrl) this.logger.warn('FRONTEND_URL não definido: link gerado com http://localhost:3000')
     return shareUrl(frontendUrl ?? 'http://localhost:3000', token)
   }

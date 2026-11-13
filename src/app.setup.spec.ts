@@ -89,3 +89,32 @@ describe('configureApp: corpo das requisições', () => {
     expect(response.body).toHaveProperty('startedAt')
   })
 })
+
+describe('configureApp: CORS', () => {
+  let app: NestExpressApplication
+  const previous = process.env.FRONTEND_URL
+
+  beforeAll(async () => {
+    process.env.FRONTEND_URL = 'https://smartcrm.digital, https://WWW.SmartCRM.digital/ ,https://crm-imob-front.vercel.app'
+    app = (await createTestApp()).app
+  })
+  afterAll(async () => {
+    process.env.FRONTEND_URL = previous
+    await app.close()
+  })
+
+  it('libera a origem da lista mesmo com espaço, maiúsculas e barra final na variável', async () => {
+    const response = await request(app.getHttpServer())
+      .options('/api/v1/health')
+      .set('Origin', 'https://www.smartcrm.digital')
+      .set('Access-Control-Request-Method', 'GET')
+    expect(response.status).toBe(204)
+    expect(response.headers['access-control-allow-origin']).toBe('https://www.smartcrm.digital')
+  })
+
+  it('origem fora da lista não vira 500: responde sem o cabeçalho de CORS', async () => {
+    const response = await request(app.getHttpServer()).get('/api/v1/health').set('Origin', 'https://evil.com')
+    expect(response.status).toBe(200)
+    expect(response.headers['access-control-allow-origin']).toBeUndefined()
+  })
+})
