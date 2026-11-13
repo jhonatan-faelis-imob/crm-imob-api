@@ -10,6 +10,7 @@ import { CreateLeadDto } from './dto/create-lead.dto'
 import { QueryLeadDto } from './dto/query-lead.dto'
 
 const TERMINAL_STATUSES = ['ganho', 'perdido']
+const NO_CADENCE: CadenceResult = { created: [], cancelled: 0 }
 
 // Lead, histórico e cadência numa transação só; folga para a latência do banco remoto
 const STAGE_TRANSACTION = { timeout: 15_000 }
@@ -53,35 +54,47 @@ export class LeadsService {
     const ownerId = dto.ownerId ?? requestingUser.id
     const teamId = dto.teamId ?? requestingUser.teamId ?? undefined
 
-    if (dto.funnelStageId) await this.cadences.ensureDefaults(organizationId)
+    // Sem etapa no corpo: a primeira do funil. Organização sem etapas: lead sem etapa e sem cadência
+    const stage = dto.funnelStageId
+      ? await this.findStage(organizationId, dto.funnelStageId)
+      : await this.firstStage(organizationId)
+    if (stage) await this.cadences.ensureDefaults(organizationId)
 
+    // Devolve o lead como antes, mais `cadence` (acréscimo, igual ao PATCH /leads/:id/stage)
     return this.prisma.$transaction(async (tx) => {
       const lead = await tx.lead.create({
-        data: { ...dto, organizationId, ownerId, teamId },
+        data: { ...dto, organizationId, ownerId, teamId, funnelStageId: stage?.id ?? null },
         include: LEAD_INCLUDE,
       })
+      if (!stage) return { ...lead, cadence: NO_CADENCE }
 
-      if (lead.funnelStage) {
-        await tx.leadStageHistory.create({
-          data: {
-            organizationId,
-            leadId: lead.id,
-            toStageId: lead.funnelStage.id,
-            toStageName: normalizeStageName(lead.funnelStage.name),
-            changedBy: requestingUser.id,
-          },
-        })
-        await this.cadences.applyOnStageChange(tx, {
+      await tx.leadStageHistory.create({
+        data: {
           organizationId,
-          lead,
-          fromStageId: null,
-          toStageId: lead.funnelStage.id,
-          actorId: requestingUser.id,
-        })
-      }
-
-      return lead
+          leadId: lead.id,
+          toStageId: stage.id,
+          toStageName: normalizeStageName(stage.name),
+          changedBy: requestingUser.id,
+        },
+      })
+      // Lead novo: nada a cancelar. Tarefas vão para o ownerId do lead (ou quem criou, se não houver)
+      const cadence = await this.cadences.applyOnStageChange(tx, {
+        organizationId,
+        lead,
+        fromStageId: null,
+        toStageId: stage.id,
+        actorId: requestingUser.id,
+      })
+      return { ...lead, cadence }
     }, STAGE_TRANSACTION)
+  }
+
+  private firstStage(organizationId: string) {
+    return this.prisma.funnelStage.findFirst({
+      where: { organizationId },
+      orderBy: { orderIndex: 'asc' },
+      select: { id: true, name: true },
+    })
   }
 
   // Telefone válido: compara só os dígitos (acha número salvo com ou sem máscara, em phone ou phone2).

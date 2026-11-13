@@ -259,8 +259,10 @@ describe('POST /billing/subscribe', () => {
     const { service } = billingSetup(baseOrg(), 1, {
       'POST /customers': () => ({ status: 400, body: { errors: [{ code: 'invalid_cpfCnpj', description: 'O CPF/CNPJ informado é inválido.' }] } }),
     })
-    const error = await service.subscribe(director, { planId: 'corretor', billingType: 'PIX' }, NOW).catch((caught: Error) => caught)
-    expect(error).toBeInstanceOf(BadRequestException)
+    const error: unknown = await service
+      .subscribe(director, { planId: 'corretor', billingType: 'PIX' }, NOW)
+      .catch((caught: unknown) => caught)
+    if (!(error instanceof BadRequestException)) throw new Error('esperava BadRequestException')
     expect(error.message).toBe('Asaas: O CPF/CNPJ informado é inválido.')
     expect(error.message).not.toContain(API_KEY)
   })
