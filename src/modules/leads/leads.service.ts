@@ -1,7 +1,13 @@
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { assertCanViewLead } from '../../common/utils/lead-visibility'
-import { findLeadByPhone, normalizePhone } from '../../common/utils/phone'
+import {
+  findLeadByPhone,
+  normalizePhone,
+  phoneCandidateWhere,
+  phoneContainsDigits,
+  phoneSearchDigits,
+} from '../../common/utils/phone'
 import { normalizeStageName } from '../../common/utils/stage'
 import { PrismaService } from '../../prisma/prisma.service'
 import { CadencesService, type CadenceResult } from '../cadences/cadences.service'
@@ -11,6 +17,8 @@ import { QueryLeadDto } from './dto/query-lead.dto'
 
 const TERMINAL_STATUSES = ['ganho', 'perdido']
 const NO_CADENCE: CadenceResult = { created: [], cancelled: 0 }
+// Busca por telefone com poucos dígitos pode casar muita gente: confere no máximo esta quantidade de candidatos
+const PHONE_SEARCH_CANDIDATES = 500
 
 // Lead, histórico e cadência numa transação só; folga para a latência do banco remoto
 const STAGE_TRANSACTION = { timeout: 15_000 }
@@ -119,30 +127,28 @@ export class LeadsService {
   ) {
     const { search, status, source, funnelStageId, ownerId, teamId, urgency, page = 1, limit = 20 } = query
 
-    const where: Record<string, unknown> = { organizationId, active: true }
+    // Cada regra entra no AND: um filtro nunca sobrescreve a visibilidade nem a busca
+    const and: Prisma.LeadWhereInput[] = []
 
     // Visibilidade por role
     if (requestingUser.role === 'corretor') {
-      where.ownerId = requestingUser.id
+      and.push({ ownerId: requestingUser.id })
     } else if (requestingUser.role === 'coordenador' && requestingUser.teamId) {
-      where.teamId = requestingUser.teamId
+      and.push({ teamId: requestingUser.teamId })
     }
 
-    if (search) {
-      where.OR = [
-        { name: { contains: search, mode: 'insensitive' } },
-        { phone: { contains: search } },
-        { email: { contains: search, mode: 'insensitive' } },
-      ]
-    }
+    if (status) and.push({ status })
+    if (source) and.push({ source })
+    if (funnelStageId) and.push({ funnelStageId })
+    if (ownerId) and.push({ ownerId })
+    if (teamId) and.push({ teamId })
+    if (urgency) and.push({ urgency })
 
-    if (status) where.status = status
-    if (source) where.source = source
-    if (funnelStageId) where.funnelStageId = funnelStageId
-    if (ownerId) where.ownerId = ownerId
-    if (teamId) where.teamId = teamId
-    if (urgency) where.urgency = urgency
+    const base: Prisma.LeadWhereInput = { organizationId, active: true, AND: [...and] }
+    const term = search?.trim()
+    if (term) and.push(await this.searchWhere(base, term))
 
+    const where: Prisma.LeadWhereInput = { organizationId, active: true, AND: and }
     const skip = (page - 1) * limit
 
     const [data, total] = await Promise.all([
@@ -173,6 +179,30 @@ export class LeadsService {
         totalPages: Math.ceil(total / limit),
       },
     }
+  }
+
+  /**
+   * Nome ou e-mail (contains, sem diferenciar maiúsculas) ou telefone ignorando a máscara. O telefone só entra com 4+
+   * dígitos: candidatos pelos últimos 8 dígitos dentro dos mesmos filtros, conferidos em memória (como a duplicidade)
+   */
+  private async searchWhere(base: Prisma.LeadWhereInput, term: string): Promise<Prisma.LeadWhereInput> {
+    const or: Prisma.LeadWhereInput[] = [
+      { name: { contains: term, mode: 'insensitive' } },
+      { email: { contains: term, mode: 'insensitive' } },
+    ]
+    const digits = phoneSearchDigits(term)
+    if (digits) {
+      const candidates = await this.prisma.lead.findMany({
+        where: { AND: [base, phoneCandidateWhere(digits)] },
+        select: { id: true, phone: true, phone2: true },
+        take: PHONE_SEARCH_CANDIDATES,
+      })
+      const ids = candidates
+        .filter((lead) => phoneContainsDigits(lead.phone, digits) || phoneContainsDigits(lead.phone2, digits))
+        .map((lead) => lead.id)
+      if (ids.length) or.push({ id: { in: ids } })
+    }
+    return { OR: or }
   }
 
   // Uma consulta para a página inteira, agrupando por lead, status e obrigatoriedade

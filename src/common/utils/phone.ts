@@ -5,10 +5,55 @@ import { Prisma } from '@prisma/client'
  * dígitos com DDD; qualquer outra coisa devolve null
  */
 export function normalizePhone(raw: string | null | undefined): string | null {
-  if (!raw) return null
-  let digits = raw.replace(/\D/g, '')
-  if ((digits.length === 12 || digits.length === 13) && digits.startsWith('55')) digits = digits.slice(2)
+  const digits = phoneDigits(raw)
   return digits.length === 10 || digits.length === 11 ? digits : null
+}
+
+/** Só dígitos, sem o DDI 55 quando sobram 12 ou 13 dígitos. Não confere o tamanho */
+export function phoneDigits(raw: string | null | undefined): string {
+  const digits = (raw ?? '').replace(/\D/g, '')
+  if ((digits.length === 12 || digits.length === 13) && digits.startsWith('55')) return digits.slice(2)
+  return digits
+}
+
+// ---------- Comparação ignorando a máscara (duplicidade e busca) ----------
+
+const CANDIDATE_TAIL = 8
+// Separadores que a máscara põe entre dígitos: 9XXXX-XXXX, "19 99546 1826" e "(19) 99546"
+const MASK_SEPARATORS = ['-', ' ', ') ']
+
+/**
+ * Filtro de candidatos no banco: os últimos (até) 8 dígitos, puros ou com um separador da máscara em
+ * qualquer posição, em phone ou phone2. É só um pré-filtro: a confirmação é em memória
+ */
+export function phoneCandidateWhere(digits: string): Prisma.LeadWhereInput {
+  const tail = digits.slice(-CANDIDATE_TAIL)
+  const fragments = new Set([tail])
+  for (let index = 1; index < tail.length; index++) {
+    for (const separator of MASK_SEPARATORS) fragments.add(`${tail.slice(0, index)}${separator}${tail.slice(index)}`)
+  }
+  return {
+    OR: [...fragments].flatMap((fragment) => [{ phone: { contains: fragment } }, { phone2: { contains: fragment } }]),
+  }
+}
+
+/** Telefone salvo (com ou sem máscara, com ou sem +55) contém esses dígitos */
+export function phoneContainsDigits(stored: string | null | undefined, digits: string) {
+  return digits.length > 0 && phoneDigits(stored).includes(digits)
+}
+
+export const MIN_PHONE_SEARCH_DIGITS = 4
+const PHONE_LIKE = /^[\d\s()+\-.]+$/
+
+/**
+ * Dígitos para buscar por telefone, ou null: só quando o texto parece telefone (dígitos, parênteses, espaços,
+ * traços, ponto e +) e tem pelo menos 4 dígitos. "+55 19 99546-1826" vira "19995461826"
+ */
+export function phoneSearchDigits(text: string | null | undefined): string | null {
+  const value = (text ?? '').trim()
+  if (!PHONE_LIKE.test(value)) return null
+  const digits = phoneDigits(value)
+  return digits.length >= MIN_PHONE_SEARCH_DIGITS ? digits : null
 }
 
 /** (DD) 9XXXX-XXXX para celular, (DD) XXXX-XXXX para fixo. Espera dígitos já normalizados */
@@ -25,21 +70,14 @@ export type PhoneMatch = { id: string; name: string; status: string; ownerId: st
 
 /**
  * Lead ativo da organização com esse telefone em phone ou phone2, ignorando máscara.
- * Busca candidatos pelos últimos 8 dígitos (como estão, ou com o hífen da máscara no meio)
- * e confere em memória pelos dígitos completos
+ * Busca candidatos pelos últimos 8 dígitos (phoneCandidateWhere) e confere em memória pelos dígitos completos
  */
 export async function findLeadByPhone(db: PhoneLookupDb, organizationId: string, digits: string): Promise<PhoneMatch | null> {
   const target = normalizePhone(digits)
   if (!target) return null
 
-  const last8 = target.slice(-8)
-  const fragments = [last8, `${last8.slice(0, 4)}-${last8.slice(4)}`, `${last8.slice(0, 4)} ${last8.slice(4)}`]
   const candidates = await db.lead.findMany({
-    where: {
-      organizationId,
-      active: true,
-      OR: fragments.flatMap((fragment) => [{ phone: { contains: fragment } }, { phone2: { contains: fragment } }]),
-    },
+    where: { organizationId, active: true, ...phoneCandidateWhere(target) },
     select: { id: true, name: true, status: true, ownerId: true, phone: true, phone2: true },
     take: 50,
   })
