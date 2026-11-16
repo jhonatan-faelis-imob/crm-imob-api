@@ -156,8 +156,17 @@ function seatSetup(seats: number, users: { id: string; active: boolean; role?: s
         Promise.resolve(where.id ? (rows.find((row) => row.id === where.id) ?? null) : null),
       ),
       create: jest.fn(({ data }: { data: Record<string, unknown> }) => Promise.resolve({ id: 'novo', ...data })),
-      update: jest.fn(({ data }: { data: Record<string, unknown> }) => Promise.resolve(data)),
+      update: jest.fn(({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+        const row = rows.find((item) => item.id === where.id)
+        if (row) Object.assign(row, data)
+        return Promise.resolve({ ...row, ...data })
+      }),
     },
+    lead: { count: jest.fn(() => Promise.resolve(0)) },
+    task: { count: jest.fn(() => Promise.resolve(0)) },
+    property: { count: jest.fn(() => Promise.resolve(0)) },
+    goal: { count: jest.fn(() => Promise.resolve(0)) },
+    billingEvent: { create: jest.fn(() => Promise.resolve({})) },
     team: { findFirst: jest.fn(() => Promise.resolve(null)), updateMany: jest.fn() },
     $transaction: (fn: (tx: unknown) => Promise<unknown>) => fn(prisma),
   }
@@ -193,17 +202,17 @@ describe('limite de assentos', () => {
 
   it('reativar no limite dá 402; com assento livre, reativa', async () => {
     const full = seatSetup(1, [{ id: 'a', active: true }, { id: 'b', active: false }])
-    const error = await full.service.update(diretor, 'b', { active: true }).catch((caught: unknown) => caught)
+    const error = await full.service.activate(diretor, 'b').catch((caught: unknown) => caught)
     expect(statusOf(error)).toBe(402)
 
     const free = seatSetup(2, [{ id: 'a', active: true }, { id: 'b', active: false }])
-    await expect(free.service.update(diretor, 'b', { active: true })).resolves.toMatchObject({ active: true })
+    await expect(free.service.activate(diretor, 'b')).resolves.toMatchObject({ active: true })
   })
 
-  it('desativar e editar quem já está ativo não conta assento', async () => {
+  it('desativar e editar quem está ativo não conta assento', async () => {
     const { service, prisma } = seatSetup(1, [{ id: 'a', active: true }, { id: 'b', active: true }])
-    await service.update(diretor, 'b', { active: false })
-    await service.update(diretor, 'a', { name: 'Outro nome', active: true })
+    await service.deactivate(diretor, 'b', {})
+    await service.update(diretor, 'a', { name: 'Outro nome' })
     expect(prisma.organization.findUnique).not.toHaveBeenCalled()
   })
 })

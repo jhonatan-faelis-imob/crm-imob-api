@@ -17,6 +17,11 @@ export function isPublicSignupEnabled(raw = process.env.PUBLIC_SIGNUP_ENABLED): 
   return raw?.trim().toLowerCase() === 'true'
 }
 
+/** Versão dos termos aceitos no cadastro (TERMS_VERSION; padrão 1.0) */
+export function termsVersion(raw = process.env.TERMS_VERSION): string {
+  return raw?.trim() || '1.0'
+}
+
 export const SIGNUP_DISABLED_MESSAGE = 'Cadastro disponível apenas por contato com o suporte'
 
 /** Roda antes da validação do corpo: desligado dá 403 mesmo com corpo incompleto */
@@ -93,6 +98,8 @@ export class OrganizationsService {
           billingDocument: document,
           billingEmail: email,
           billingPhone: phone,
+          termsAcceptedAt: now,
+          termsVersion: termsVersion(),
         },
       })
       await seedFunnelStages(tx, org.id)
@@ -106,10 +113,12 @@ export class OrganizationsService {
           role: 'diretor',
         },
       })
+      // Quem aceitou é o diretor criado agora
+      await tx.organization.update({ where: { id: org.id }, data: { termsAcceptedBy: user.id } })
       await tx.billingEvent.create({
         data: { organizationId: org.id, kind: 'observacao', description: `Cadastro público: teste de ${TRIAL_DAYS} dias`, createdBy: email },
       })
-      return { organization: org, user: { id: user.id, name: user.name, email: user.email } }
+      return { organization: { ...org, termsAcceptedBy: user.id }, user: { id: user.id, name: user.name, email: user.email } }
     })
   }
 }

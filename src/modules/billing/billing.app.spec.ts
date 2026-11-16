@@ -97,7 +97,7 @@ describe('assinatura bloqueada pelo HTTP', () => {
 
   it('cadastro público desligado dá 403', async () => {
     const response = await http().post('/api/v1/organizations/onboarding').send({
-      orgName: 'Imob Nova', slug: 'imob-nova', name: 'Ana', email: 'ana@x.com', password: 'senha-forte-1',
+      orgName: 'Imob Nova', slug: 'imob-nova', name: 'Ana', email: 'ana@x.com', password: 'senha-forte-1', acceptedTerms: true,
     })
     expect(response.status).toBe(403)
     expect(response.body).toMatchObject({ message: 'Cadastro disponível apenas por contato com o suporte' })

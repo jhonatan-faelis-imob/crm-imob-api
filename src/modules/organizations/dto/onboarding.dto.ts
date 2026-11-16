@@ -1,5 +1,5 @@
 import { Transform } from 'class-transformer'
-import { IsEmail, IsNotEmpty, IsString, Matches, MaxLength, MinLength, Validate } from 'class-validator'
+import { Equals, IsBoolean, IsEmail, IsNotEmpty, IsString, Matches, MaxLength, MinLength, Validate } from 'class-validator'
 import { trimLowerEmail } from '../../../common/utils/email'
 import { CpfCnpjConstraint } from '../../billing/dto/billing-info.dto'
 
@@ -40,4 +40,9 @@ export class OnboardingDto {
   @MinLength(8, { message: 'A senha deve ter no mínimo 8 caracteres' })
   @MaxLength(72)
   password: string
+
+  /** Termos de Uso e Política de Privacidade: precisa vir true */
+  @IsBoolean({ message: 'Aceite os Termos de Uso e a Política de Privacidade' })
+  @Equals(true, { message: 'Aceite os Termos de Uso e a Política de Privacidade' })
+  acceptedTerms: boolean
 }

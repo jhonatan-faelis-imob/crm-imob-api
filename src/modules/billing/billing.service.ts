@@ -24,6 +24,7 @@ export class BillingService {
         plan: true, seats: true, subscriptionStatus: true, trialEndsAt: true, currentPeriodEnd: true, monthlyPrice: true,
         billingName: true, billingDocument: true, billingEmail: true, billingPhone: true,
         billingType: true, asaasSubscriptionId: true, canceledAt: true, cancelReason: true,
+        termsAcceptedAt: true, termsAcceptedBy: true, termsVersion: true,
       },
     })
     if (!organization) throw new NotFoundException('Organização não encontrada')
@@ -54,6 +55,9 @@ export class BillingService {
       canceledAt: subscription.canceledAt,
       cancelReason: subscription.cancelReason,
       openPayment,
+      termsAcceptedAt: subscription.termsAcceptedAt,
+      termsAcceptedBy: subscription.termsAcceptedBy,
+      termsVersion: subscription.termsVersion,
       isSuperAdmin: isSuperAdmin(actor.email),
       billing: actor.role === 'diretor' ? { billingName, billingDocument, billingEmail, billingPhone } : null,
     }

@@ -39,6 +39,10 @@ model Organization {
   /// Cancelada pelo cliente: segue ativa até currentPeriodEnd, depois a tarefa diária passa para cancelada
   canceledAt          DateTime? @map("canceled_at")
   cancelReason        String?   @map("cancel_reason")
+  /// Aceite dos termos no cadastro público: quando, quem (id do diretor criado) e a versão (TERMS_VERSION)
+  termsAcceptedAt     DateTime? @map("terms_accepted_at")
+  termsAcceptedBy     String?   @map("terms_accepted_by")
+  termsVersion        String?   @map("terms_version")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -100,6 +104,10 @@ model User {
   role           String    @default("corretor")
   active         Boolean   @default(true)
   lastLogin      DateTime? @map("last_login")
+  /// Desativação (o histórico continua no nome da pessoa). deactivatedBy é o id de quem desativou, sem FK
+  deactivatedAt      DateTime? @map("deactivated_at")
+  deactivatedBy      String?   @map("deactivated_by")
+  deactivationReason String?   @map("deactivation_reason")
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
 

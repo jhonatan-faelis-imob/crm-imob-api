@@ -35,7 +35,19 @@ export function forbiddenRoleMessage(targetRole: string): string {
 /** Quem age nas rotas de usuários e equipes (vem do JWT) */
 export interface Actor {
   id: string
+  /** Vem do JWT; vai para o histórico da organização */
+  email?: string
   organizationId: string
   role: string
   teamId: string | null
+}
+
+/** Gerente ou superior (altera e-mail, redefine senha) */
+export function isManagerOrAbove(role: string): boolean {
+  return role === 'diretor' || role === 'gerente'
+}
+
+/** Coordenador ou superior (vê inativos, transfere carteira) */
+export function isCoordinatorOrAbove(role: string): boolean {
+  return isManagerOrAbove(role) || role === 'coordenador'
 }
