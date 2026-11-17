@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common'
+import { BadRequestException, Injectable, NotFoundException, ConflictException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { assertCanViewLead } from '../../common/utils/lead-visibility'
 import {
@@ -22,6 +22,9 @@ const PHONE_SEARCH_CANDIDATES = 500
 
 // Lead, histórico e cadência numa transação só; folga para a latência do banco remoto
 const STAGE_TRANSACTION = { timeout: 15_000 }
+/** Mover uma etapa inteira para outra: acima disso, mover por partes (tudo vai numa transação) */
+export const MAX_MOVE_LEADS = 300
+const MOVE_ALL_TRANSACTION = { timeout: 60_000 }
 
 const LEAD_INCLUDE = {
   owner: { select: { id: true, name: true, avatarUrl: true } },
@@ -328,6 +331,40 @@ export class LeadsService {
     )
 
     return { ...updated, cadence }
+  }
+
+  /**
+   * Move todos os leads ativos de uma etapa para outra, cada um pelo mesmo caminho do updateStage
+   * (histórico de etapas e cadência da etapa de destino). Tudo ou nada
+   */
+  async moveAllToStage(organizationId: string, fromStageId: string, toStageId: string, changedBy: string) {
+    if (fromStageId === toStageId) throw new BadRequestException('Escolha uma etapa de destino diferente da origem')
+    await this.findStage(organizationId, fromStageId)
+    const to = await this.findStage(organizationId, toStageId)
+
+    const where = { organizationId, funnelStageId: fromStageId, active: true }
+    const total = await this.prisma.lead.count({ where })
+    if (total > MAX_MOVE_LEADS) {
+      throw new BadRequestException(`A etapa tem ${total} leads. Mova por partes (até ${MAX_MOVE_LEADS} por vez).`)
+    }
+    if (total === 0) return { moved: 0, cadence: { created: 0, cancelled: 0 } }
+    await this.cadences.ensureDefaults(organizationId)
+
+    return this.prisma.$transaction(async (tx) => {
+      // Lido dentro da transação: o que entrou entre a contagem e agora também se move
+      const leads = await tx.lead.findMany({ where, take: MAX_MOVE_LEADS + 1, orderBy: { createdAt: 'asc' } })
+      if (leads.length > MAX_MOVE_LEADS) {
+        throw new BadRequestException(`A etapa tem mais de ${MAX_MOVE_LEADS} leads. Mova por partes.`)
+      }
+      let created = 0
+      let cancelled = 0
+      for (const lead of leads) {
+        const { cadence } = await this.moveToStage(tx, organizationId, lead, to, changedBy)
+        created += cadence.created.length
+        cancelled += cadence.cancelled
+      }
+      return { moved: leads.length, cadence: { created, cancelled } }
+    }, MOVE_ALL_TRANSACTION)
   }
 
   async markAsLost(organizationId: string, id: string, lostReason: string, changedBy: string) {
